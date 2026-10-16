@@ -36,8 +36,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var resultPreview: ImageView
     private lateinit var brightnessSeek: SeekBar
     private lateinit var contrastSeek: SeekBar
+    private lateinit var brightnessValue: TextView
+    private lateinit var contrastValue: TextView
     private var manualBrightness = 0
     private var manualContrast = 100
+    @Volatile private var previewEnhanced: Bitmap? = null
 
     private val picker =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -62,6 +65,8 @@ class MainActivity : ComponentActivity() {
         resultPreview = findViewById(R.id.resultPreview)
         brightnessSeek = findViewById(R.id.brightnessSeek)
         contrastSeek = findViewById(R.id.contrastSeek)
+        brightnessValue = findViewById(R.id.brightnessValue)
+        contrastValue = findViewById(R.id.contrastValue)
         brightnessSeek.max = 100
         brightnessSeek.progress = 50
         contrastSeek.max = 150
@@ -69,6 +74,8 @@ class MainActivity : ComponentActivity() {
         brightnessSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 manualBrightness = progress - 50
+                brightnessValue.text = getString(R.string.manual_brightness, manualBrightness)
+                refreshManualPreview()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
@@ -76,11 +83,15 @@ class MainActivity : ComponentActivity() {
         contrastSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 manualContrast = progress + 50
+                contrastValue.text = getString(R.string.manual_contrast, manualContrast)
+                refreshManualPreview()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
 
+        brightnessValue.text = getString(R.string.manual_brightness, manualBrightness)
+        contrastValue.text = getString(R.string.manual_contrast, manualContrast)
         openCvReady = OpenCVLoader.initLocal()
         if (!openCvReady) {
             Toast.makeText(this, R.string.opencv_failed, Toast.LENGTH_LONG).show()
@@ -93,6 +104,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         worker.shutdown()
+        previewEnhanced?.let { if (!it.isRecycled) it.recycle() }
+        previewEnhanced = null
         super.onDestroy()
     }
 
@@ -123,8 +136,21 @@ class MainActivity : ComponentActivity() {
         return output
     }
 
+    private fun refreshManualPreview() {
+        val base = previewEnhanced ?: return
+        if (base.isRecycled) return
+        val adjusted = try {
+            applyManualAdjustments(base, manualBrightness, manualContrast / 100f)
+        } catch (_: Exception) {
+            return
+        }
+        resultPreview.setImageBitmap(adjusted)
+    }
+
     private fun startProcessing() {
         val items = selected
+        val brightnessAtStart = manualBrightness
+        val contrastAtStart = manualContrast
         if (items.isEmpty() || busy) return
 
         busy = true
@@ -172,7 +198,14 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val enhanced = Processor.enhance(loaded, classification.kind)
-                        result = applyManualAdjustments(enhanced, manualBrightness, manualContrast / 100f)
+                        val previewCopy = enhanced.copy(Bitmap.Config.ARGB_8888, false)
+                        runOnUiThread {
+                            val oldPreview = previewEnhanced
+                            previewEnhanced = previewCopy
+                            oldPreview?.let { if (!it.isRecycled) it.recycle() }
+                            refreshManualPreview()
+                        }
+                        result = applyManualAdjustments(enhanced, brightnessAtStart, contrastAtStart / 100f)
                         enhanced.recycle()
                         runOnUiThread { resultPreview.setImageBitmap(result?.copy(Bitmap.Config.ARGB_8888, false)) }
                         Processor.save(
