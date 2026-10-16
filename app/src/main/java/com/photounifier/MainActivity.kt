@@ -6,7 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +43,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,7 +82,13 @@ class MainActivity : ComponentActivity() {
                         onPickImages = { picker.launch("image/*") },
                         onProcess = { viewModel.process(openCvReady) },
                         onBrightnessChange = viewModel::setBrightness,
-                        onContrastChange = viewModel::setContrast
+                        onContrastChange = viewModel::setContrast,
+                        onOpenCrop = { viewModel.openCropEditor(openCvReady) },
+                        onMoveCropCorner = viewModel::moveCropCorner,
+                        onUndoCrop = viewModel::undoCrop,
+                        onResetCrop = viewModel::resetCrop,
+                        onCancelCrop = viewModel::cancelCrop,
+                        onApplyCrop = viewModel::applyCrop
                     )
                 }
             }
@@ -90,7 +104,13 @@ private fun PhotoUnifierScreen(
     onPickImages: () -> Unit,
     onProcess: () -> Unit,
     onBrightnessChange: (Int) -> Unit,
-    onContrastChange: (Int) -> Unit
+    onContrastChange: (Int) -> Unit,
+    onOpenCrop: () -> Unit,
+    onMoveCropCorner: (Int, Float, Float) -> Unit,
+    onUndoCrop: () -> Unit,
+    onResetCrop: () -> Unit,
+    onCancelCrop: () -> Unit,
+    onApplyCrop: () -> Unit
 ) {
     Scaffold(topBar = {
         TopAppBar(
