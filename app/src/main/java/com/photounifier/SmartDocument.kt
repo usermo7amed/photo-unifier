@@ -13,28 +13,24 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Conservative quadrilateral detection for paper/posters.
- *
- * Returns a perspective-corrected bitmap only when a large, convex four-corner
- * contour is found with enough area and frame margin. Otherwise returns null,
- * allowing the caller to preserve the original framing.
- */
+/** Conservative quadrilateral detection for paper and posters. */
 object SmartDocument {
     private const val MAX_DETECTION_SIDE = 1000
     private const val MIN_AREA_RATIO = 0.22
     private const val MAX_AREA_RATIO = 0.96
 
+    /** Returns null unless a large, convex four-corner contour is found confidently. */
     fun rectifyOrNull(source: Bitmap): Bitmap? {
         if (source.width < 240 || source.height < 240) return null
 
         val scale = min(1.0, MAX_DETECTION_SIDE.toDouble() / max(source.width, source.height))
-        val detection = Bitmap.createScaledBitmap(
-            source,
-            max(1, (source.width * scale).toInt()),
-            max(1, (source.height * scale).toInt()),
-            true
-        )
+        val detectWidth = max(1, (source.width * scale).toInt())
+        val detectHeight = max(1, (source.height * scale).toInt())
+        val detection = if (detectWidth == source.width && detectHeight == source.height) {
+            source
+        } else {
+            Bitmap.createScaledBitmap(source, detectWidth, detectHeight, true)
+        }
         val rgba = Mat()
         val gray = Mat()
         val blurred = Mat()
@@ -58,8 +54,7 @@ object SmartDocument {
             var best: List<Point>? = null
             var bestScore = 0.0
             for (contour in contours) {
-                val area = Imgproc.contourArea(contour)
-                val ratio = area / frameArea
+                val ratio = Imgproc.contourArea(contour) / frameArea
                 if (ratio !in MIN_AREA_RATIO..MAX_AREA_RATIO || ratio <= bestScore) continue
 
                 val curve = MatOfPoint2f(*contour.toArray())
@@ -86,10 +81,8 @@ object SmartDocument {
                     val width = max(distance(ordered[0], ordered[1]), distance(ordered[2], ordered[3]))
                     val height = max(distance(ordered[0], ordered[3]), distance(ordered[1], ordered[2]))
                     if (width < 100 || height < 100) continue
-                    val aspect = max(width / height, height / width)
-                    if (aspect > 3.2) continue
+                    if (max(width / height, height / width) > 3.2) continue
 
-                    // Prefer larger candidates, but avoid a nearly full-frame border.
                     val score = ratio * (1.0 - max(0.0, ratio - 0.88) * 2.0)
                     if (score > bestScore) {
                         bestScore = score
@@ -121,11 +114,10 @@ object SmartDocument {
                 Point(0.0, outHeight - 1.0)
             )
             val sourceMat = Mat()
-            val transform = Mat()
+            val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
             val warped = Mat()
             try {
                 Utils.bitmapToMat(source, sourceMat)
-                Imgproc.getPerspectiveTransform(srcPoints, dstPoints).copyTo(transform)
                 Imgproc.warpPerspective(
                     sourceMat, warped, transform, Size(outWidth.toDouble(), outHeight.toDouble()),
                     Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE
@@ -141,7 +133,7 @@ object SmartDocument {
                 warped.release()
             }
         } finally {
-            detection.recycle()
+            if (detection !== source) detection.recycle()
             rgba.release()
             gray.release()
             blurred.release()
