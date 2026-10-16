@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">مُوحِّد الصور</string>
+    <string name="title">مُوحِّد الصور</string>
+    <string name="subtitle">تحسين تلقائي: ضبط الإضاءة والألوان وإظهار التفاصيل</string>
+    <string name="pick">اختار الصور</string>
+    <string name="start">ابدأ المعالجة</string>
+    <string name="count_none">لسه ما اخترتش صور</string>
+    <string name="count_fmt">%1$d صورة مختارة</string>
+    <string name="status_ready">جاهز</string>
+    <string name="status_progress_fmt">جاري المعالجة %1$d من %2$d</string>
+    <string name="status_done_fmt">خلصت: %1$d تمت، %2$d فشلت. الصور في Pictures/PhotoUnifier</string>
+    <string name="status_error_fmt">آخر خطأ: %1$s</string>
+    <string name="opencv_failed">تعذر تشغيل مكتبة OpenCV على الجهاز</string>
+</resources>
