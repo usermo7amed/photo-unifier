@@ -3,6 +3,11 @@
     <string name="app_name">مُوحِّد الصور</string>
     <string name="title">مُوحِّد الصور</string>
     <string name="subtitle">تحسين تلقائي: ضبط الإضاءة والألوان وإظهار التفاصيل</string>
+    <string name="preview_title">معاينة قبل وبعد</string>
+    <string name="preview_original">الأصلية</string>
+    <string name="preview_result">بعد التحسين</string>
+    <string name="manual_brightness">السطوع اليدوي</string>
+    <string name="manual_contrast">التباين اليدوي</string>
     <string name="pick">اختار الصور</string>
     <string name="start">ابدأ المعالجة</string>
     <string name="count_none">لسه ما اخترتش صور</string>
