@@ -177,6 +177,20 @@ private fun PhotoUnifierScreen(
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("معاينة الصورة", "قارن الأصل بالنتيجة المحسّنة")
+                    OutlinedButton(onClick = onOpenCrop, enabled = !state.busy && state.cropSource != null && openCvReady) {
+                        Text("تحديد زوايا الورقة")
+                    }
+                    if (state.cropOpen) {
+                        Text("اسحب الزوايا لتعديل حدود الورقة")
+                        CropCornerEditor(state.cropSource, state.cropCorners, onMoveCropCorner)
+                        PreviewPanel("معاينة القص", state.cropPreview, Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = onUndoCrop, enabled = state.cropUndoStack.isNotEmpty()) { Text("تراجع") }
+                            OutlinedButton(onClick = onResetCrop) { Text("إعادة ضبط") }
+                            OutlinedButton(onClick = onCancelCrop) { Text("إلغاء") }
+                            Button(onClick = onApplyCrop, enabled = state.cropPreview != null) { Text("تطبيق القص") }
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
