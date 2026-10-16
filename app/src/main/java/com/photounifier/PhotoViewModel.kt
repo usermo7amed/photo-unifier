@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 data class PhotoUiState(
     val selected: List<Uri> = emptyList(),
@@ -25,6 +26,8 @@ data class PhotoUiState(
 class PhotoViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = PhotoRepository()
     private val executor = Executors.newSingleThreadExecutor()
+    private val previewExecutor = Executors.newSingleThreadExecutor()
+    private val previewGeneration = AtomicInteger(0)
     private val mutableState = MutableLiveData(PhotoUiState())
     val state: LiveData<PhotoUiState> = mutableState
     @Volatile private var currentState = PhotoUiState()
@@ -59,13 +62,18 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
     private fun refreshPreview() {
         val snapshot = currentState
         val base = snapshot.enhancedPreview ?: return
-        executor.execute {
+        val generation = previewGeneration.incrementAndGet()
+        previewExecutor.execute {
             if (base.isRecycled) return@execute
             val preview = try {
                 BitmapAdjustments.apply(base, snapshot.brightness, snapshot.contrastPercent / 100f)
             } catch (_: Exception) { return@execute }
+            if (generation != previewGeneration.get()) {
+                preview.recycle()
+                return@execute
+            }
             update { old ->
-                if (old.enhancedPreview !== base) {
+                if (old.enhancedPreview !== base || generation != previewGeneration.get()) {
                     preview.recycle()
                     old
                 } else old.copy(resultPreview = preview)
@@ -119,6 +127,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         executor.shutdownNow()
+        previewExecutor.shutdownNow()
         currentState.sourcePreview?.let { if (!it.isRecycled) it.recycle() }
         currentState.enhancedPreview?.let { if (!it.isRecycled) it.recycle() }
         currentState.resultPreview?.let { if (!it.isRecycled) it.recycle() }
