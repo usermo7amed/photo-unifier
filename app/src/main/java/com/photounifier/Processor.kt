@@ -166,85 +166,144 @@ object Processor {
 
     // ------------------------------------------------------------ documents
 
+    /**
+     * Detects a page using both edge and adaptive-threshold candidates.
+     *
+     * A single Canny pass is fragile with shadows, low-contrast paper and textured
+     * backgrounds. Multiple contour approximations make detection less dependent
+     * on one threshold while the area/convexity/right-angle checks reject noise.
+     */
     private fun rectifyPageIfConfident(pool: Pool, rgb: Mat): Mat {
+        val width = rgb.cols()
+        val height = rgb.rows()
+        val totalArea = width.toDouble() * height.toDouble()
+        if (width < 160 || height < 160) return rgb
+
         val gray = pool.mat()
         Imgproc.cvtColor(rgb, gray, Imgproc.COLOR_RGB2GRAY)
         val blurred = pool.mat()
         Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-        val edges = pool.mat()
-        Imgproc.Canny(blurred, edges, 45.0, 135.0)
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-        val closed = pool.mat()
-        Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
+
+        val edgeMask = pool.mat()
+        Imgproc.Canny(blurred, edgeMask, 35.0, 110.0)
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+        val closedEdges = pool.mat()
+        Imgproc.morphologyEx(edgeMask, closedEdges, Imgproc.MORPH_CLOSE, kernel)
         kernel.release()
 
-        val hierarchy = pool.mat()
-        val contours = ArrayList<MatOfPoint>()
-        Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
-        val totalArea = rgb.cols().toDouble() * rgb.rows().toDouble()
+        val adaptiveMask = pool.mat()
+        Imgproc.adaptiveThreshold(
+            blurred, adaptiveMask, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV, 31, 10.0
+        )
+
         var bestCorners: Array<Point>? = null
-        var bestArea = 0.0
+        var bestScore = 0.0
 
-        try {
-            for (contour in contours.sortedByDescending { Imgproc.contourArea(it) }.take(18)) {
-                val curve = MatOfPoint2f(*contour.toArray())
-                val approximation = MatOfPoint2f()
-                try {
-                    val perimeter = Imgproc.arcLength(curve, true)
-                    if (perimeter <= 0.0) continue
-                    Imgproc.approxPolyDP(curve, approximation, perimeter * 0.02, true)
-                    val points = approximation.toArray()
-                    if (points.size != 4) continue
+        fun inspectMask(mask: Mat) {
+            val hierarchy = pool.mat()
+            val contours = ArrayList<MatOfPoint>()
+            Imgproc.findContours(
+                mask, contours, hierarchy,
+                Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE
+            )
+            try {
+                for (contour in contours.sortedByDescending { Imgproc.contourArea(it) }.take(60)) {
+                    val contourArea = abs(Imgproc.contourArea(contour))
+                    val areaFraction = contourArea / totalArea
+                    // Include large pages that nearly fill the frame, but reject the frame itself.
+                    if (areaFraction < 0.10 || areaFraction > 0.992) continue
 
-                    val polygon = MatOfPoint(*points)
-                    val valid = try {
-                        Imgproc.isContourConvex(polygon) && maxCornerCosine(points) < 0.55
+                    val curve = MatOfPoint2f(*contour.toArray())
+                    try {
+                        val perimeter = Imgproc.arcLength(curve, true)
+                        if (perimeter <= 0.0) continue
+
+                        for (epsilonFactor in doubleArrayOf(0.012, 0.018, 0.025, 0.035)) {
+                            val approximation = MatOfPoint2f()
+                            try {
+                                Imgproc.approxPolyDP(curve, approximation, perimeter * epsilonFactor, true)
+                                val points = approximation.toArray()
+                                if (points.size != 4) continue
+
+                                val polygon = MatOfPoint(*points)
+                                val valid = try {
+                                    Imgproc.isContourConvex(polygon) && maxCornerCosine(points) < 0.68
+                                } finally {
+                                    polygon.release()
+                                }
+                                if (!valid) continue
+
+                                val polygonArea = abs(Imgproc.contourArea(approximation))
+                                val fraction = polygonArea / totalArea
+                                if (fraction < 0.10 || fraction > 0.992) continue
+
+                                val corners = orderCorners(points)
+                                val top = distance(corners[0], corners[1])
+                                val bottom = distance(corners[3], corners[2])
+                                val left = distance(corners[0], corners[3])
+                                val right = distance(corners[1], corners[2])
+                                if (minOf(top, bottom, left, right) < minOf(width, height) * 0.08) continue
+
+                                val anglePenalty = maxCornerCosine(points)
+                                val borderPenalty = if (corners.all {
+                                        it.x < width * 0.015 || it.x > width * 0.985 ||
+                                            it.y < height * 0.015 || it.y > height * 0.985
+                                    }) 0.65 else 1.0
+                                val score = fraction * (1.0 - anglePenalty) * borderPenalty
+                                if (score > bestScore) {
+                                    bestScore = score
+                                    bestCorners = corners
+                                }
+                            } finally {
+                                approximation.release()
+                            }
+                        }
                     } finally {
-                        polygon.release()
+                        curve.release()
                     }
-                    if (!valid) continue
-
-                    val area = abs(Imgproc.contourArea(approximation))
-                    // Reject tiny objects and a detected frame around the entire image.
-                    if (area < totalArea * 0.18 || area > totalArea * 0.96) continue
-                    if (area > bestArea) {
-                        bestArea = area
-                        bestCorners = orderCorners(points)
-                    }
-                } finally {
-                    curve.release()
-                    approximation.release()
                 }
+            } finally {
+                contours.forEach { it.release() }
+                hierarchy.release()
             }
-        } finally {
-            contours.forEach { it.release() }
         }
 
+        inspectMask(closedEdges)
+        inspectMask(adaptiveMask)
+
         val corners = bestCorners ?: return rgb
-        val width = max(distance(corners[0], corners[1]), distance(corners[3], corners[2]))
-            .roundToInt().coerceIn(2, MAX_SIDE)
-        val height = max(distance(corners[0], corners[3]), distance(corners[1], corners[2]))
-            .roundToInt().coerceIn(2, MAX_SIDE)
-        if (width < 80 || height < 80) return rgb
+        // Avoid cropping to a weak or implausibly small detection.
+        if (bestScore < 0.075) return rgb
+
+        val outputWidth = max(
+            distance(corners[0], corners[1]),
+            distance(corners[3], corners[2])
+        ).roundToInt().coerceIn(2, MAX_SIDE)
+        val outputHeight = max(
+            distance(corners[0], corners[3]),
+            distance(corners[1], corners[2])
+        ).roundToInt().coerceIn(2, MAX_SIDE)
+        if (outputWidth < 80 || outputHeight < 80) return rgb
 
         val sourcePoints = pool.own(MatOfPoint2f(*corners))
         val targetPoints = pool.own(
             MatOfPoint2f(
                 Point(0.0, 0.0),
-                Point((width - 1).toDouble(), 0.0),
-                Point((width - 1).toDouble(), (height - 1).toDouble()),
-                Point(0.0, (height - 1).toDouble())
+                Point((outputWidth - 1).toDouble(), 0.0),
+                Point((outputWidth - 1).toDouble(), (outputHeight - 1).toDouble()),
+                Point(0.0, (outputHeight - 1).toDouble())
             )
         )
-        val transform = pool.own(Imgproc.getPerspectiveTransform(sourcePoints, targetPoints, Core.DECOMP_LU))
+        val transform = pool.own(
+            Imgproc.getPerspectiveTransform(sourcePoints, targetPoints, Core.DECOMP_LU)
+        )
         val warped = pool.mat()
         Imgproc.warpPerspective(
-            rgb,
-            warped,
-            transform,
-            Size(width.toDouble(), height.toDouble()),
-            Imgproc.INTER_CUBIC,
-            Core.BORDER_REPLICATE,
+            rgb, warped, transform,
+            Size(outputWidth.toDouble(), outputHeight.toDouble()),
+            Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE,
             Scalar(255.0, 255.0, 255.0)
         )
         return warped
