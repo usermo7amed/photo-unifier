@@ -137,7 +137,7 @@ class SceneClassifier : AutoCloseable {
 
             // Weak or nearly tied evidence is deliberately routed to the conservative
             // general-photo path instead of applying destructive document processing.
-            if (winner.value < 0.24 || (winner.value - runnerUp < 0.035 && winnerLabels.isEmpty())) {
+            if (winner.value < 0.24 || (winner.value - runnerUp < 0.035)) {
                 return SceneClassification(ImageKind.GENERAL, 0f, labels.map { it.text })
             }
 

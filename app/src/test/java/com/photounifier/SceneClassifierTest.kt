@@ -37,6 +37,17 @@ class SceneClassifierTest {
     }
 
     @Test
+    fun nearlyTiedDocumentAndPosterEvidenceFallsBackToGeneral() {
+        val result = SceneClassifier.classifyLabels(
+            listOf(
+                LabelSignal("document", 0.5333333f),
+                LabelSignal("poster", 0.5f)
+            )
+        )
+        assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
     fun weakEvidenceFallsBackToGeneral() {
         val result = SceneClassifier.classifyLabels(
             listOf(LabelSignal("Object", 0.91f), LabelSignal("Pattern", 0.72f))
