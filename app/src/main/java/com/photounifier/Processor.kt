@@ -43,6 +43,8 @@ object Processor {
     private const val SAT = 1.35
     private const val SHARP = 0.35
 
+    private enum class Profile { PAPER_LIKE, VIVID, LOW_LIGHT, GENERAL }
+
     /** Owns every Mat created during one image, so native memory is always released. */
     private class Pool : AutoCloseable {
         private val items = ArrayList<Mat>()
@@ -139,17 +141,22 @@ object Processor {
         val rgb = p.mat()
         Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
 
-        grayWorld(p, rgb)
+        val profile = classifyProfile(p, rgb)
+        if (profile != Profile.VIVID) grayWorld(p, rgb)
 
         val lab = p.mat()
         Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
         val ch = p.split(lab)
-        localToneMap(p, ch[0])
-        Imgproc.createCLAHE(CLAHE_CLIP, Size(8.0, 8.0)).apply(ch[0], ch[0])
+        localToneMap(p, ch[0], profile)
+        val clip = if (profile == Profile.PAPER_LIKE) 1.6 else if (profile == Profile.LOW_LIGHT) 2.4 else CLAHE_CLIP
+        Imgproc.createCLAHE(clip, Size(8.0, 8.0)).apply(ch[0], ch[0])
         Core.merge(ch, lab)
         Imgproc.cvtColor(lab, rgb, Imgproc.COLOR_Lab2RGB)
 
-        boostSaturation(p, rgb)
+        // Avoid oversaturating posters and colourful scenes; paper should stay neutral.
+        if (profile != Profile.PAPER_LIKE && profile != Profile.VIVID) {
+            boostSaturation(p, rgb, if (profile == Profile.LOW_LIGHT) 1.12 else 1.18)
+        }
 
         val blur = p.mat()
         Imgproc.GaussianBlur(rgb, blur, Size(0.0, 0.0), 2.0)
@@ -199,8 +206,31 @@ object Processor {
         Core.merge(chans, rgb)
     }
 
+    /**
+     * Conservative pixel-statistics profile. This is not semantic scene recognition:
+     * it selects safer processing strengths based on brightness and chroma.
+     */
+    private fun classifyProfile(p: Pool, rgb: Mat): Profile {
+        val hsv = p.mat()
+        Imgproc.cvtColor(rgb, hsv, Imgproc.COLOR_RGB2HSV)
+        val channels = p.split(hsv)
+        val meanValue = Core.mean(channels[2]).`val`[0]
+        val meanSaturation = Core.mean(channels[1]).`val`[0]
+        val lab = p.mat()
+        Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
+        val labChannels = p.split(lab)
+        val meanLightness = Core.mean(labChannels[0]).`val`[0]
+
+        return when {
+            meanLightness > 155.0 && meanSaturation < 48.0 -> Profile.PAPER_LIKE
+            meanSaturation > 105.0 -> Profile.VIVID
+            meanValue < 105.0 -> Profile.LOW_LIGHT
+            else -> Profile.GENERAL
+        }
+    }
+
     /** In-place on an 8-bit L channel. */
-    private fun localToneMap(p: Pool, l: Mat) {
+    private fun localToneMap(p: Pool, l: Mat, profile: Profile) {
         val w = l.cols()
         val h = l.rows()
 
@@ -223,9 +253,12 @@ object Processor {
         Core.add(illum, Scalar(1e-3), illum)
         val gain = p.mat()
         Core.divide(TARGET, illum, gain)
-        Core.pow(gain, ALPHA, gain)
-        Core.max(gain, Scalar(GAIN_MIN), gain)
-        Core.min(gain, Scalar(GAIN_MAX), gain)
+        val alpha = if (profile == Profile.PAPER_LIKE) 0.28 else if (profile == Profile.VIVID) 0.34 else if (profile == Profile.LOW_LIGHT) 0.62 else ALPHA
+        val minGain = if (profile == Profile.PAPER_LIKE) 0.78 else GAIN_MIN
+        val maxGain = if (profile == Profile.PAPER_LIKE) 1.45 else if (profile == Profile.VIVID) 1.7 else GAIN_MAX
+        Core.pow(gain, alpha, gain)
+        Core.max(gain, Scalar(minGain), gain)
+        Core.min(gain, Scalar(maxGain), gain)
 
         Core.multiply(lf, gain, lf)
         Core.max(lf, Scalar(0.0), lf)
@@ -233,11 +266,11 @@ object Processor {
         lf.convertTo(l, CvType.CV_8U, 255.0, 0.5)
     }
 
-    private fun boostSaturation(p: Pool, rgb: Mat) {
+    private fun boostSaturation(p: Pool, rgb: Mat, saturation: Double) {
         val hsv = p.mat()
         Imgproc.cvtColor(rgb, hsv, Imgproc.COLOR_RGB2HSV)
         val ch = p.split(hsv)
-        ch[1].convertTo(ch[1], -1, SAT, 0.0)
+        ch[1].convertTo(ch[1], -1, saturation.coerceAtMost(SAT), 0.0)
         Core.merge(ch, hsv)
         Imgproc.cvtColor(hsv, rgb, Imgproc.COLOR_HSV2RGB)
     }
