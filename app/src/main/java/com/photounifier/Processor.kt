@@ -236,7 +236,7 @@ object Processor {
                 Point(0.0, (height - 1).toDouble())
             )
         )
-        val transform = pool.own(Imgproc.getPerspectiveTransform(sourcePoints, targetPoints))
+        val transform = pool.own(Imgproc.getPerspectiveTransform(sourcePoints, targetPoints, Core.DECOMP_LU))
         val warped = pool.mat()
         Imgproc.warpPerspective(
             rgb,
@@ -361,7 +361,7 @@ object Processor {
         val fraction = Core.countNonZero(mask).toDouble() / mask.total().toDouble()
         if (fraction < MIN_NEUTRAL_FRACTION) return
 
-        val means = Core.mean(rgb, mask).`val`
+        val means = Core.mean(rgb, mask).toArray()
         val gray = (means[0] + means[1] + means[2]) / 3.0
         val rgbChannels = pool.split(rgb)
         for (index in 0..2) {
