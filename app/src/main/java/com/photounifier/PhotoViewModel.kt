@@ -19,7 +19,13 @@ data class PhotoUiState(
     val enhancedPreview: Bitmap? = null,
     val resultPreview: Bitmap? = null,
     val brightness: Int = 0,
-    val contrastPercent: Int = 100
+    val contrastPercent: Int = 100,
+    val cropSource: Bitmap? = null,
+    val cropPreview: Bitmap? = null,
+    val cropCorners: List<CropPoint> = emptyList(),
+    val cropUndoStack: List<List<CropPoint>> = emptyList(),
+    val cropOpen: Boolean = false,
+    val cropApplied: Boolean = false
 )
 
 /** Owns screen state and coordinates background work; the Activity only renders state. */
@@ -28,6 +34,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
     private val executor = Executors.newSingleThreadExecutor()
     private val previewExecutor = Executors.newSingleThreadExecutor()
     private val previewGeneration = AtomicInteger(0)
+    private val cropGeneration = AtomicInteger(0)
     private val mutableState = MutableLiveData(PhotoUiState())
     val state: LiveData<PhotoUiState> = mutableState
     @Volatile private var currentState = PhotoUiState()
@@ -38,15 +45,95 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         mutableState.postValue(currentState)
     }
 
-    fun selectImages(uris: List<Uri>) = update {
-        it.copy(
-            selected = uris.toList(),
-            progress = 0,
+    fun selectImages(uris: List<Uri>) {
+        update { it.copy(
+            selected = uris.toList(), progress = 0,
             status = if (uris.isEmpty()) "لم يتم اختيار صور" else "تم اختيار ${uris.size} صورة",
-            sourcePreview = null,
-            enhancedPreview = null,
-            resultPreview = null
-        )
+            sourcePreview = null, enhancedPreview = null, resultPreview = null,
+            cropSource = null, cropPreview = null, cropCorners = emptyList(),
+            cropUndoStack = emptyList(), cropOpen = false, cropApplied = false
+        ) }
+        if (uris.isNotEmpty()) executor.execute {
+            try {
+                val bitmap = Processor.load(getApplication<Application>().applicationContext, uris.first())
+                update { old ->
+                    if (old.selected.firstOrNull() != uris.first()) { bitmap.recycle(); old }
+                    else old.copy(sourcePreview = bitmap, cropSource = bitmap)
+                }
+            } catch (error: Exception) {
+                update { it.copy(status = "تعذر تحميل معاينة الصورة: ${error.message ?: "خطأ"}") }
+            }
+        }
+    }
+
+    fun openCropEditor(openCvReady: Boolean) {
+        val source = currentState.cropSource ?: return
+        if (!openCvReady) { update { it.copy(status = "مكتبة OpenCV مش جاهزة") }; return }
+        executor.execute {
+            val detected = try { DocumentCrop.detect(source) } catch (_: Exception) { null }
+            val corners = detected ?: DocumentCrop.fullFrame(source.width, source.height)
+            val preview = try { DocumentCrop.warp(source, corners) } catch (_: Exception) { source.copy(Bitmap.Config.ARGB_8888, false) }
+            update { old ->
+                if (old.cropSource !== source) { preview.recycle(); old }
+                else old.copy(cropCorners = corners, cropPreview = preview, cropUndoStack = emptyList(), cropOpen = true,
+                    status = if (detected == null) "مفيش ورقة واضحة؛ ظبط الأربع زوايا يدويًا." else "تم اكتشاف حدود الورقة. اسحب النقاط للتعديل.")
+            }
+        }
+    }
+
+    fun moveCropCorner(index: Int, x: Float, y: Float) {
+        val snapshot = currentState
+        val source = snapshot.cropSource ?: return
+        if (!snapshot.cropOpen || index !in 0..3 || snapshot.cropCorners.size != 4) return
+        val candidate = snapshot.cropCorners.toMutableList()
+        candidate[index] = CropPoint(x.coerceIn(0f, (source.width - 1).toFloat()), y.coerceIn(0f, (source.height - 1).toFloat()))
+        if (!DocumentCrop.isValid(candidate, source.width, source.height)) return
+        val generation = cropGeneration.incrementAndGet()
+        update { it.copy(cropCorners = candidate, cropUndoStack = it.cropUndoStack + listOf(it.cropCorners)) }
+        executor.execute {
+            val preview = try { DocumentCrop.warp(source, candidate) } catch (_: Exception) { return@execute }
+            if (generation != cropGeneration.get()) { preview.recycle(); return@execute }
+            update { old ->
+                if (!old.cropOpen || old.cropCorners != candidate) { preview.recycle(); old }
+                else old.copy(cropPreview = preview)
+            }
+        }
+    }
+
+    fun undoCrop() {
+        val snapshot = currentState
+        val previous = snapshot.cropUndoStack.lastOrNull() ?: return
+        val source = snapshot.cropSource ?: return
+        val generation = cropGeneration.incrementAndGet()
+        update { it.copy(cropCorners = previous, cropUndoStack = it.cropUndoStack.dropLast(1)) }
+        executor.execute {
+            val preview = try { DocumentCrop.warp(source, previous) } catch (_: Exception) { return@execute }
+            if (generation != cropGeneration.get()) { preview.recycle(); return@execute }
+            update { old -> if (old.cropCorners != previous) { preview.recycle(); old } else old.copy(cropPreview = preview) }
+        }
+    }
+
+    fun resetCrop() {
+        val source = currentState.cropSource ?: return
+        val corners = DocumentCrop.fullFrame(source.width, source.height)
+        val generation = cropGeneration.incrementAndGet()
+        update { it.copy(cropCorners = corners, cropUndoStack = it.cropUndoStack + listOf(it.cropCorners)) }
+        executor.execute {
+            val preview = DocumentCrop.warp(source, corners)
+            if (generation != cropGeneration.get()) { preview.recycle(); return@execute }
+            update { it.copy(cropPreview = preview) }
+        }
+    }
+
+    fun cancelCrop() {
+        cropGeneration.incrementAndGet()
+        update { it.copy(cropOpen = false, cropCorners = emptyList(), cropUndoStack = emptyList(), cropPreview = null, cropApplied = false) }
+    }
+
+    fun applyCrop() {
+        val preview = currentState.cropPreview ?: return
+        val applied = preview.copy(Bitmap.Config.ARGB_8888, false)
+        update { it.copy(cropOpen = false, cropApplied = true, sourcePreview = applied, status = "تم تطبيق القص على الصورة الأولى؛ ابدأ التحسين.") }
     }
 
     fun setBrightness(value: Int) {
@@ -122,7 +209,8 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
-                }
+                },
+                firstSourceOverride = if (snapshot.cropApplied) snapshot.cropPreview else null
             )
         }
     }

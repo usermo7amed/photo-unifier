@@ -6,7 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +43,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,7 +82,13 @@ class MainActivity : ComponentActivity() {
                         onPickImages = { picker.launch("image/*") },
                         onProcess = { viewModel.process(openCvReady) },
                         onBrightnessChange = viewModel::setBrightness,
-                        onContrastChange = viewModel::setContrast
+                        onContrastChange = viewModel::setContrast,
+                        onOpenCrop = { viewModel.openCropEditor(openCvReady) },
+                        onMoveCropCorner = viewModel::moveCropCorner,
+                        onUndoCrop = viewModel::undoCrop,
+                        onResetCrop = viewModel::resetCrop,
+                        onCancelCrop = viewModel::cancelCrop,
+                        onApplyCrop = viewModel::applyCrop
                     )
                 }
             }
@@ -90,7 +104,13 @@ private fun PhotoUnifierScreen(
     onPickImages: () -> Unit,
     onProcess: () -> Unit,
     onBrightnessChange: (Int) -> Unit,
-    onContrastChange: (Int) -> Unit
+    onContrastChange: (Int) -> Unit,
+    onOpenCrop: () -> Unit,
+    onMoveCropCorner: (Int, Float, Float) -> Unit,
+    onUndoCrop: () -> Unit,
+    onResetCrop: () -> Unit,
+    onCancelCrop: () -> Unit,
+    onApplyCrop: () -> Unit
 ) {
     Scaffold(topBar = {
         TopAppBar(
@@ -157,6 +177,20 @@ private fun PhotoUnifierScreen(
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("معاينة الصورة", "قارن الأصل بالنتيجة المحسّنة")
+                    OutlinedButton(onClick = onOpenCrop, enabled = !state.busy && state.cropSource != null && openCvReady) {
+                        Text("تحديد زوايا الورقة")
+                    }
+                    if (state.cropOpen) {
+                        Text("اسحب الزوايا لتعديل حدود الورقة")
+                        CropCornerEditor(state.cropSource, state.cropCorners, onMoveCropCorner)
+                        PreviewPanel("معاينة القص", state.cropPreview, Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = onUndoCrop, enabled = state.cropUndoStack.isNotEmpty()) { Text("تراجع") }
+                            OutlinedButton(onClick = onResetCrop) { Text("إعادة ضبط") }
+                            OutlinedButton(onClick = onCancelCrop) { Text("إلغاء") }
+                            Button(onClick = onApplyCrop, enabled = state.cropPreview != null) { Text("تطبيق القص") }
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -297,6 +331,68 @@ private fun PreviewPanel(
                     Spacer(Modifier.height(8.dp))
                     Text("المعاينة هتظهر هنا", style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun CropCornerEditor(
+    bitmap: android.graphics.Bitmap?,
+    corners: List<CropPoint>,
+    onMoveCorner: (Int, Float, Float) -> Unit
+) {
+    if (bitmap == null || bitmap.isRecycled || corners.size != 4) return
+    val latestCorners by rememberUpdatedState(corners)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().height(320.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF16191D))
+    ) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "الصورة مع نقاط تحديد الزوايا",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit
+        )
+        Canvas(modifier = Modifier.fillMaxSize().pointerInput(bitmap) {
+            var activeCorner = -1
+            var dragPosition = Offset.Zero
+            detectDragGestures(
+                onDragStart = { position ->
+                    val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+                    val left = (size.width - bitmap.width * scale) / 2f
+                    val top = (size.height - bitmap.height * scale) / 2f
+                    val screenPoints = latestCorners.map { Offset(left + it.x * scale, top + it.y * scale) }
+                    activeCorner = screenPoints.indices.minByOrNull { (screenPoints[it] - position).getDistance() } ?: -1
+                    if (activeCorner >= 0 && (screenPoints[activeCorner] - position).getDistance() > 58f) activeCorner = -1
+                    dragPosition = position
+                },
+                onDrag = { change, amount ->
+                    if (activeCorner >= 0) {
+                        change.consume()
+                        dragPosition += amount
+                        val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+                        val left = (size.width - bitmap.width * scale) / 2f
+                        val top = (size.height - bitmap.height * scale) / 2f
+                        val x = ((dragPosition.x - left) / scale).coerceIn(0f, (bitmap.width - 1).toFloat())
+                        val y = ((dragPosition.y - top) / scale).coerceIn(0f, (bitmap.height - 1).toFloat())
+                        onMoveCorner(activeCorner, x, y)
+                    }
+                },
+                onDragEnd = { activeCorner = -1 },
+                onDragCancel = { activeCorner = -1 }
+            )
+        }) {
+            val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+            val left = (size.width - bitmap.width * scale) / 2f
+            val top = (size.height - bitmap.height * scale) / 2f
+            val screenPoints = corners.map { Offset(left + it.x * scale, top + it.y * scale) }
+            for (i in 0..3) drawLine(Color.Cyan, screenPoints[i], screenPoints[(i + 1) % 4], strokeWidth = 4f)
+            screenPoints.forEach { point ->
+                drawCircle(Color.White, radius = 17f, center = point)
+                drawCircle(Color(0xFF00A8C6), radius = 12f, center = point)
             }
         }
     }
