@@ -14,7 +14,6 @@ android {
         versionCode = 2
         versionName = "0.2"
 
-        // OpenCV ships native libs for 4 ABIs; keep only the phone ones to keep the APK small.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -34,7 +33,8 @@ dependencies {
     implementation("org.opencv:opencv:4.9.0")
     implementation("androidx.activity:activity-ktx:1.9.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
-    // Bundled on-device model: available immediately and does not need Play Services downloads.
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("com.google.mlkit:image-labeling:17.0.9")
 
     testImplementation("junit:junit:4.13.2")
