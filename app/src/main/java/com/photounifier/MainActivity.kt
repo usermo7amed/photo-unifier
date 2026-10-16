@@ -1,9 +1,15 @@
 package com.photounifier
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
+import android.widget.ImageView
+import android.widget.SeekBar
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -26,6 +32,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var countText: TextView
     private lateinit var statusText: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var sourcePreview: ImageView
+    private lateinit var resultPreview: ImageView
+    private lateinit var brightnessSeek: SeekBar
+    private lateinit var contrastSeek: SeekBar
+    private var manualBrightness = 0
+    private var manualContrast = 100
 
     private val picker =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -46,6 +58,28 @@ class MainActivity : ComponentActivity() {
         countText = findViewById(R.id.countText)
         statusText = findViewById(R.id.statusText)
         progressBar = findViewById(R.id.progressBar)
+        sourcePreview = findViewById(R.id.sourcePreview)
+        resultPreview = findViewById(R.id.resultPreview)
+        brightnessSeek = findViewById(R.id.brightnessSeek)
+        contrastSeek = findViewById(R.id.contrastSeek)
+        brightnessSeek.max = 100
+        brightnessSeek.progress = 50
+        contrastSeek.max = 150
+        contrastSeek.progress = 50
+        brightnessSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                manualBrightness = progress - 50
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        contrastSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                manualContrast = progress + 50
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
 
         openCvReady = OpenCVLoader.initLocal()
         if (!openCvReady) {
@@ -70,6 +104,23 @@ class MainActivity : ComponentActivity() {
         }
         pickButton.isEnabled = !busy
         startButton.isEnabled = !busy && openCvReady && selected.isNotEmpty()
+    }
+
+    private fun applyManualAdjustments(source: Bitmap, brightness: Int, contrast: Float): Bitmap {
+        val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val offset = brightness.toFloat()
+        val scale = contrast.coerceIn(0.5f, 2.0f)
+        val matrix = ColorMatrix(floatArrayOf(
+            scale, 0f, 0f, 0f, offset,
+            0f, scale, 0f, 0f, offset,
+            0f, 0f, scale, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        paint.colorFilter = ColorMatrixColorFilter(matrix)
+        canvas.drawBitmap(source, 0f, 0f, paint)
+        return output
     }
 
     private fun startProcessing() {
@@ -107,6 +158,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         val loaded = Processor.load(this, uri)
                         source = loaded
+                        runOnUiThread { sourcePreview.setImageBitmap(loaded.copy(Bitmap.Config.ARGB_8888, false)) }
                         val classification = classifier?.classify(loaded)
                             ?: SceneClassification(ImageKind.GENERAL, 0f, emptyList())
 
@@ -120,10 +172,12 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val enhanced = Processor.enhance(loaded, classification.kind)
-                        result = enhanced
+                        result = applyManualAdjustments(enhanced, manualBrightness, manualContrast / 100f)
+                        enhanced.recycle()
+                        runOnUiThread { resultPreview.setImageBitmap(result?.copy(Bitmap.Config.ARGB_8888, false)) }
                         Processor.save(
                             this,
-                            enhanced,
+                            result!!,
                             "PU_%s_%03d.jpg".format(Locale.US, stamp, index + 1)
                         )
                         successCount++
