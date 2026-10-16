@@ -47,7 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.observeAsState
+import androidx.compose.runtime.livedata.observeAsState
 import com.photounifier.ui.PhotoUnifierTheme
 import org.opencv.android.OpenCVLoader
 import kotlin.math.roundToInt
