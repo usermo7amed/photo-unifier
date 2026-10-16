@@ -17,7 +17,7 @@ class PhotoRepository {
         fun onFinished(success: Int, failed: Int, error: String?)
     }
 
-    fun process(context: Context, uris: List<Uri>, brightness: Int, contrastPercent: Int, observer: Observer) {
+    fun process(context: Context, uris: List<Uri>, brightness: Int, contrastPercent: Int, observer: Observer, firstSourceOverride: Bitmap? = null) {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         var success = 0
         var failed = 0
@@ -29,7 +29,7 @@ class PhotoRepository {
                 var enhanced: Bitmap? = null
                 var output: Bitmap? = null
                 try {
-                    source = Processor.load(context, uri)
+                    source = if (index == 0 && firstSourceOverride != null) firstSourceOverride.copy(Bitmap.Config.ARGB_8888, false) else Processor.load(context, uri)
                     observer.onSource(index + 1, uris.size, source.copy(Bitmap.Config.ARGB_8888, false))
                     val classification = classifier?.classify(source)
                         ?: SceneClassification(ImageKind.GENERAL, 0f, emptyList())
