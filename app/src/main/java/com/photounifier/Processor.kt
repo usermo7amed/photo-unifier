@@ -361,7 +361,7 @@ object Processor {
         val fraction = Core.countNonZero(mask).toDouble() / mask.total().toDouble()
         if (fraction < MIN_NEUTRAL_FRACTION) return
 
-        val means = Core.mean(rgb, mask).toArray()
+        val means = Core.mean(rgb, mask).`val`
         val gray = (means[0] + means[1] + means[2]) / 3.0
         val rgbChannels = pool.split(rgb)
         for (index in 0..2) {
