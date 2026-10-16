@@ -122,7 +122,8 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
-                }
+                },
+                firstSourceOverride = if (snapshot.cropApplied) snapshot.cropPreview else null
             )
         }
     }
