@@ -336,6 +336,68 @@ private fun PreviewPanel(
     }
 }
 
+
+@Composable
+private fun CropCornerEditor(
+    bitmap: android.graphics.Bitmap?,
+    corners: List<CropPoint>,
+    onMoveCorner: (Int, Float, Float) -> Unit
+) {
+    if (bitmap == null || bitmap.isRecycled || corners.size != 4) return
+    val latestCorners by rememberUpdatedState(corners)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().height(320.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF16191D))
+    ) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "الصورة مع نقاط تحديد الزوايا",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit
+        )
+        Canvas(modifier = Modifier.fillMaxSize().pointerInput(bitmap) {
+            var activeCorner = -1
+            var dragPosition = Offset.Zero
+            detectDragGestures(
+                onDragStart = { position ->
+                    val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+                    val left = (size.width - bitmap.width * scale) / 2f
+                    val top = (size.height - bitmap.height * scale) / 2f
+                    val screenPoints = latestCorners.map { Offset(left + it.x * scale, top + it.y * scale) }
+                    activeCorner = screenPoints.indices.minByOrNull { (screenPoints[it] - position).getDistance() } ?: -1
+                    if (activeCorner >= 0 && (screenPoints[activeCorner] - position).getDistance() > 58f) activeCorner = -1
+                    dragPosition = position
+                },
+                onDrag = { change, amount ->
+                    if (activeCorner >= 0) {
+                        change.consume()
+                        dragPosition += amount
+                        val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+                        val left = (size.width - bitmap.width * scale) / 2f
+                        val top = (size.height - bitmap.height * scale) / 2f
+                        val x = ((dragPosition.x - left) / scale).coerceIn(0f, (bitmap.width - 1).toFloat())
+                        val y = ((dragPosition.y - top) / scale).coerceIn(0f, (bitmap.height - 1).toFloat())
+                        onMoveCorner(activeCorner, x, y)
+                    }
+                },
+                onDragEnd = { activeCorner = -1 },
+                onDragCancel = { activeCorner = -1 }
+            )
+        }) {
+            val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
+            val left = (size.width - bitmap.width * scale) / 2f
+            val top = (size.height - bitmap.height * scale) / 2f
+            val screenPoints = corners.map { Offset(left + it.x * scale, top + it.y * scale) }
+            for (i in 0..3) drawLine(Color.Cyan, screenPoints[i], screenPoints[(i + 1) % 4], strokeWidth = 4f)
+            screenPoints.forEach { point ->
+                drawCircle(Color.White, radius = 17f, center = point)
+                drawCircle(Color(0xFF00A8C6), radius = 12f, center = point)
+            }
+        }
+    }
+}
+
 @Composable
 private fun ValuePill(value: String) {
     Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
