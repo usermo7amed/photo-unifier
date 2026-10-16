@@ -91,17 +91,26 @@ class MainActivity : ComponentActivity() {
                     statusText.text =
                         getString(R.string.status_progress_fmt, index + 1, items.size)
                 }
+
+                var source: android.graphics.Bitmap? = null
+                var rectified: android.graphics.Bitmap? = null
+                var result: android.graphics.Bitmap? = null
                 try {
-                    val source = Processor.load(this, uri)
-                    val result = Processor.enhance(source)
-                    source.recycle()
+                    source = Processor.load(this, uri)
+                    // Only crop when a confident, large four-corner contour is detected.
+                    rectified = SmartDocument.rectifyOrNull(source)
+                    result = Processor.enhance(rectified ?: source)
                     Processor.save(this, result, "PU_%s_%03d.jpg".format(stamp, index + 1))
-                    result.recycle()
                     ok++
-                } catch (t: Throwable) {
+                } catch (t: Exception) {
                     failed++
                     lastError = t.message ?: t.javaClass.simpleName
+                } finally {
+                    result?.recycle()
+                    rectified?.recycle()
+                    source?.recycle()
                 }
+
                 runOnUiThread { progressBar.progress = index + 1 }
             }
 
