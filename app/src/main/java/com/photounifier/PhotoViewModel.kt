@@ -109,6 +109,8 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     override fun onSaved(index: Int, bitmap: Bitmap) {
                         update { it.copy(progress = index, resultPreview = bitmap) }
+                        // Reapply the latest manual settings after the saved-result event.
+                        refreshPreview()
                     }
                     override fun onFinished(success: Int, failed: Int, error: String?) {
                         val detail = error?.let { "\nآخر خطأ: $it" }.orEmpty()
