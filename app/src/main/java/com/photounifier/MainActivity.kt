@@ -1,5 +1,6 @@
 package com.photounifier
 
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
@@ -15,7 +16,6 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
-
     private var selected: List<Uri> = emptyList()
     private var busy = false
     private var openCvReady = false
@@ -58,14 +58,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         worker.shutdown()
+        super.onDestroy()
     }
 
     private fun refresh() {
-        countText.text =
-            if (selected.isEmpty()) getString(R.string.count_none)
-            else getString(R.string.count_fmt, selected.size)
+        countText.text = if (selected.isEmpty()) {
+            getString(R.string.count_none)
+        } else {
+            getString(R.string.count_fmt, selected.size)
+        }
         pickButton.isEnabled = !busy
         startButton.isEnabled = !busy && openCvReady && selected.isNotEmpty()
     }
@@ -78,36 +80,69 @@ class MainActivity : ComponentActivity() {
         progressBar.max = items.size
         progressBar.progress = 0
         refresh()
-
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 
         worker.execute {
-            var ok = 0
-            var failed = 0
+            var successCount = 0
+            var failureCount = 0
             var lastError: String? = null
+            val classifier = try {
+                SceneClassifier()
+            } catch (_: Exception) {
+                null
+            }
 
-            items.forEachIndexed { index, uri ->
-                runOnUiThread {
-                    statusText.text =
-                        getString(R.string.status_progress_fmt, index + 1, items.size)
+            try {
+                items.forEachIndexed { index, uri ->
+                    runOnUiThread {
+                        statusText.text = getString(
+                            R.string.status_analyzing_fmt,
+                            index + 1,
+                            items.size
+                        )
+                    }
+
+                    var source: Bitmap? = null
+                    var result: Bitmap? = null
+                    try {
+                        val loaded = Processor.load(this, uri)
+                        source = loaded
+                        val classification = classifier?.classify(loaded)
+                            ?: SceneClassification(ImageKind.GENERAL, 0f, emptyList())
+
+                        runOnUiThread {
+                            statusText.text = getString(
+                                R.string.status_processing_kind_fmt,
+                                index + 1,
+                                items.size,
+                                getString(classification.kind.labelRes)
+                            )
+                        }
+
+                        val enhanced = Processor.enhance(loaded, classification.kind)
+                        result = enhanced
+                        Processor.save(
+                            this,
+                            enhanced,
+                            "PU_%s_%03d.jpg".format(Locale.US, stamp, index + 1)
+                        )
+                        successCount++
+                    } catch (error: Exception) {
+                        failureCount++
+                        lastError = error.message ?: error.javaClass.simpleName
+                    } finally {
+                        source?.let { if (!it.isRecycled) it.recycle() }
+                        result?.let { if (!it.isRecycled) it.recycle() }
+                    }
+                    runOnUiThread { progressBar.progress = index + 1 }
                 }
-                try {
-                    val source = Processor.load(this, uri)
-                    val result = Processor.enhance(source)
-                    source.recycle()
-                    Processor.save(this, result, "PU_%s_%03d.jpg".format(stamp, index + 1))
-                    result.recycle()
-                    ok++
-                } catch (t: Throwable) {
-                    failed++
-                    lastError = t.message ?: t.javaClass.simpleName
-                }
-                runOnUiThread { progressBar.progress = index + 1 }
+            } finally {
+                classifier?.close()
             }
 
             runOnUiThread {
                 busy = false
-                var message = getString(R.string.status_done_fmt, ok, failed)
+                var message = getString(R.string.status_done_fmt, successCount, failureCount)
                 lastError?.let { message += "\n" + getString(R.string.status_error_fmt, it) }
                 statusText.text = message
                 refresh()
