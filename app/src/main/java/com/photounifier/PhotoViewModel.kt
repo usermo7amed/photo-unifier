@@ -14,7 +14,9 @@ data class PhotoUiState(
     val busy: Boolean = false,
     val progress: Int = 0,
     val progressMax: Int = 1,
+    val savedCount: Int = 0,
     val status: String = "جاهز لاختيار الصور",
+    val errors: List<String> = emptyList(),
     val sourcePreview: Bitmap? = null,
     val enhancedPreview: Bitmap? = null,
     val resultPreview: Bitmap? = null,
@@ -47,7 +49,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectImages(uris: List<Uri>) {
         update { it.copy(
-            selected = uris.toList(), progress = 0,
+            selected = uris.toList(), progress = 0, savedCount = 0, errors = emptyList(),
             status = if (uris.isEmpty()) "لم يتم اختيار صور" else "تم اختيار ${uris.size} صورة",
             sourcePreview = null, enhancedPreview = null, resultPreview = null,
             cropSource = null, cropPreview = null, cropCorners = emptyList(),
@@ -185,7 +187,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         val uris = snapshot.selected
         val brightness = snapshot.brightness
         val contrast = snapshot.contrastPercent
-        update { it.copy(busy = true, progress = 0, progressMax = uris.size, status = "بدء معالجة الصور…") }
+        update { it.copy(busy = true, progress = 0, savedCount = 0, progressMax = uris.size, errors = emptyList(), status = "بدء معالجة الصور…") }
 
         executor.execute {
             repository.process(
@@ -202,9 +204,13 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                         refreshPreview()
                     }
                     override fun onSaved(index: Int, bitmap: Bitmap) {
-                        update { it.copy(progress = index, resultPreview = bitmap) }
+                        update { it.copy(progress = index, savedCount = it.savedCount + 1, resultPreview = bitmap, status = "تم حفظ الصورة ${it.savedCount + 1} من ${uris.size}") }
                         // Reapply the latest manual settings after the saved-result event.
                         refreshPreview()
+                    }
+                    override fun onError(index: Int, total: Int, uri: Uri, message: String) {
+                        val item = "الصورة $index من $total (${uri.lastPathSegment ?: "ملف الصورة"}): $message"
+                        update { old -> old.copy(progress = maxOf(old.progress, index), errors = old.errors + item, status = "فشل معالجة الصورة $index من $total: $message") }
                     }
                     override fun onFinished(success: Int, failed: Int, error: String?) {
                         val detail = error?.let { "\nآخر خطأ: $it" }.orEmpty()

@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -204,6 +206,8 @@ internal fun CropCornerEditor(
 ) {
     if (bitmap == null || bitmap.isRecycled || corners.size != 4) return
     val latestCorners by rememberUpdatedState(corners)
+    var activeCorner by remember(bitmap) { mutableStateOf(-1) }
+    var magnifierPosition by remember(bitmap) { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth().height(320.dp)
             .clip(RoundedCornerShape(14.dp))
@@ -216,7 +220,6 @@ internal fun CropCornerEditor(
             contentScale = ContentScale.Fit
         )
         Canvas(modifier = Modifier.fillMaxSize().pointerInput(bitmap) {
-            var activeCorner = -1
             var dragPosition = Offset.Zero
             detectDragGestures(
                 onDragStart = { position ->
@@ -225,13 +228,16 @@ internal fun CropCornerEditor(
                     val top = (size.height - bitmap.height * scale) / 2f
                     val screenPoints = latestCorners.map { Offset(left + it.x * scale, top + it.y * scale) }
                     activeCorner = screenPoints.indices.minByOrNull { (screenPoints[it] - position).getDistance() } ?: -1
-                    if (activeCorner >= 0 && (screenPoints[activeCorner] - position).getDistance() > 58f) activeCorner = -1
+                    // A generous touch radius makes small corners easier to grab on phones.
+                    if (activeCorner >= 0 && (screenPoints[activeCorner] - position).getDistance() > 76.dp.toPx()) activeCorner = -1
                     dragPosition = position
+                    magnifierPosition = position
                 },
                 onDrag = { change, amount ->
                     if (activeCorner >= 0) {
                         change.consume()
                         dragPosition += amount
+                        magnifierPosition = dragPosition
                         val scale = minOf(size.width / bitmap.width.toFloat(), size.height / bitmap.height.toFloat())
                         val left = (size.width - bitmap.width * scale) / 2f
                         val top = (size.height - bitmap.height * scale) / 2f
@@ -249,11 +255,44 @@ internal fun CropCornerEditor(
             val top = (size.height - bitmap.height * scale) / 2f
             val screenPoints = corners.map { Offset(left + it.x * scale, top + it.y * scale) }
             for (i in 0..3) drawLine(Color.Cyan, screenPoints[i], screenPoints[(i + 1) % 4], strokeWidth = 4f)
-            screenPoints.forEach { point ->
-                drawCircle(Color.White, radius = 17f, center = point)
-                drawCircle(Color(0xFF00A8C6), radius = 12f, center = point)
+            screenPoints.forEachIndexed { index, point ->
+                val selected = index == activeCorner
+                drawCircle(Color.Black.copy(alpha = 0.45f), radius = if (selected) 30.dp.toPx() else 27.dp.toPx(), center = point)
+                drawCircle(Color.White, radius = if (selected) 25.dp.toPx() else 22.dp.toPx(), center = point)
+                drawCircle(if (selected) Color(0xFFFFB300) else Color(0xFF00A8C6),
+                    radius = if (selected) 17.dp.toPx() else 14.dp.toPx(), center = point)
+            }
+            if (activeCorner in 0..3) {
+                // Live 2.5x loupe around the dragged corner; the crop result updates alongside it.
+                val corner = corners[activeCorner]
+                val loupeRadius = 58.dp.toPx()
+                val loupeCenter = Offset(
+                    (size.width - loupeRadius - 12.dp.toPx()).coerceAtLeast(loupeRadius),
+                    (loupeRadius + 12.dp.toPx()).coerceAtMost(size.height - loupeRadius)
+                )
+                val srcWidth = (loupeRadius * 2f / (scale * 2.5f)).roundToInt().coerceAtLeast(2)
+                val srcHeight = srcWidth
+                val srcLeft = (corner.x.roundToInt() - srcWidth / 2).coerceIn(0, (bitmap.width - srcWidth).coerceAtLeast(0))
+                val srcTop = (corner.y.roundToInt() - srcHeight / 2).coerceIn(0, (bitmap.height - srcHeight).coerceAtLeast(0))
+                val path = Path().apply { addOval(androidx.compose.ui.geometry.Rect(
+                    loupeCenter.x - loupeRadius, loupeCenter.y - loupeRadius,
+                    loupeCenter.x + loupeRadius, loupeCenter.y + loupeRadius
+                )) }
+                drawCircle(Color.White, radius = loupeRadius + 5.dp.toPx(), center = loupeCenter)
+                clipPath(path) {
+                    drawImage(
+                        image = bitmap.asImageBitmap(),
+                        srcOffset = IntOffset(srcLeft, srcTop),
+                        srcSize = IntSize(srcWidth.coerceAtMost(bitmap.width - srcLeft), srcHeight.coerceAtMost(bitmap.height - srcTop)),
+                        dstOffset = IntOffset((loupeCenter.x - loupeRadius).roundToInt(), (loupeCenter.y - loupeRadius).roundToInt()),
+                        dstSize = IntSize((loupeRadius * 2).roundToInt(), (loupeRadius * 2).roundToInt()),
+                        filterQuality = FilterQuality.High
+                    )
+                }
+                drawCircle(Color(0xFFFFB300), radius = loupeRadius, center = loupeCenter, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx()))
+                drawLine(Color.Red, Offset(loupeCenter.x - 14.dp.toPx(), loupeCenter.y), Offset(loupeCenter.x + 14.dp.toPx(), loupeCenter.y), strokeWidth = 2.dp.toPx())
+                drawLine(Color.Red, Offset(loupeCenter.x, loupeCenter.y - 14.dp.toPx()), Offset(loupeCenter.x, loupeCenter.y + 14.dp.toPx()), strokeWidth = 2.dp.toPx())
             }
         }
     }
 }
-

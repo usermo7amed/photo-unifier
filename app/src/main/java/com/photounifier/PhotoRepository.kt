@@ -14,6 +14,7 @@ class PhotoRepository {
         fun onClassification(index: Int, total: Int, kind: ImageKind)
         fun onEnhanced(bitmap: Bitmap)
         fun onSaved(index: Int, bitmap: Bitmap)
+        fun onError(index: Int, total: Int, uri: Uri, message: String)
         fun onFinished(success: Int, failed: Int, error: String?)
     }
 
@@ -55,6 +56,7 @@ class PhotoRepository {
                 } catch (error: Exception) {
                     failed++
                     lastError = error.message ?: error.javaClass.simpleName
+                    observer.onError(index + 1, uris.size, uri, lastError ?: "خطأ غير معروف")
                 } finally {
                     source?.let { if (!it.isRecycled) it.recycle() }
                     enhanced?.let { if (!it.isRecycled) it.recycle() }
