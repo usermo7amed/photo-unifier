@@ -384,7 +384,7 @@ private fun PhotoUnifierScreen(
                     StepHeading(5, "حالة المعالجة", "تابع التقدم والنتيجة النهائية.")
                     Text(state.status, style = MaterialTheme.typography.bodyMedium)
                     if (state.progress > 0 || state.errors.isNotEmpty()) {
-                        Text("تم حفظ ${state.progress.coerceAtMost(state.progressMax)} من ${state.progressMax} صورة",
+                        Text("تم حفظ ${state.savedCount} من ${state.progressMax} صورة",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
