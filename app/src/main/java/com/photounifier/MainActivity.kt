@@ -118,7 +118,7 @@ private fun PhotoUnifierScreen(
                 Column {
                     Text("مُوحِّد الصور", fontWeight = FontWeight.Bold)
                     Text(
-                        "تحسين ذكي وتحكم يدوي",
+                        "اختار، راجع، حسّن — من غير ما تغيّر الأصل",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -134,38 +134,38 @@ private fun PhotoUnifierScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             ) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "خلّي صورك أوضح ومتوازنة",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        "حلّل الصور وحسّن الإضاءة والتباين، وراجع النتيجة قبل الحفظ.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onPickImages, enabled = !state.busy) {
-                            Text("اختيار الصور")
-                        }
-                        OutlinedButton(
-                            onClick = onProcess,
-                            enabled = !state.busy && openCvReady && state.selected.isNotEmpty()
-                        ) {
-                            Text(if (state.busy) "جاري التحسين..." else "بدء التحسين")
-                        }
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StepHeading(1, "اختار الصور", "اختار صورة واحدة أو مجموعة صور من جهازك.")
+                    Button(
+                        onClick = onPickImages,
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (state.selected.isEmpty()) "اختيار الصور" else "تغيير الصور المختارة")
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            if (state.selected.isEmpty()) "لسه مفيش صور مختارة"
+                            else "تم اختيار ${state.selected.size} صورة",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (state.cropApplied) ValuePill("القص مطبّق على أول صورة")
                     }
                 }
             }
@@ -176,38 +176,63 @@ private fun PhotoUnifierScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeading("معاينة الصورة", "قارن الأصل بالنتيجة المحسّنة")
-                    OutlinedButton(onClick = onOpenCrop, enabled = !state.busy && state.cropSource != null && openCvReady) {
-                        Text("تحديد زوايا الورقة")
-                    }
-                    if (state.cropOpen) {
-                        Text("اسحب الزوايا لتعديل حدود الورقة")
-                        CropCornerEditor(state.cropSource, state.cropCorners, onMoveCropCorner)
-                        PreviewPanel("معاينة القص", state.cropPreview, Modifier.fillMaxWidth())
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onUndoCrop, enabled = state.cropUndoStack.isNotEmpty()) { Text("تراجع") }
-                            OutlinedButton(onClick = onResetCrop) { Text("إعادة ضبط") }
-                            OutlinedButton(onClick = onCancelCrop) { Text("إلغاء") }
-                            Button(onClick = onApplyCrop, enabled = state.cropPreview != null) { Text("تطبيق القص") }
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    StepHeading(2, "راجع حدود الصورة", "لو الصورة مستند أو ورقة، ظبّط الزوايا قبل التحسين.")
+                    OutlinedButton(
+                        onClick = onOpenCrop,
+                        enabled = !state.busy && state.cropSource != null && openCvReady,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        PreviewPanel("الأصلية", state.sourcePreview, Modifier.weight(1f))
-                        PreviewPanel(
-                            "بعد التحسين",
-                            state.resultPreview ?: state.enhancedPreview,
-                            Modifier.weight(1f)
+                        Text(if (state.cropApplied) "مراجعة القص مرة تانية" else "اكتشاف الورقة وضبط الزوايا")
+                    }
+
+                    if (state.cropOpen) {
+                        Text(
+                            "اسحب كل نقطة لحد ركن الورقة. القص اليدوي بيتطبق على أول صورة مختارة بس.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        CropCornerEditor(state.cropSource, state.cropCorners, onMoveCropCorner)
+                        PreviewPanel("معاينة القص وتصحيح المنظور", state.cropPreview, Modifier.fillMaxWidth())
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onUndoCrop,
+                                enabled = state.cropUndoStack.isNotEmpty(),
+                                modifier = Modifier.weight(1f)
+                            ) { Text("تراجع") }
+                            OutlinedButton(
+                                onClick = onResetCrop,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("إعادة ضبط") }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(onClick = onCancelCrop, modifier = Modifier.weight(1f)) {
+                                Text("إلغاء")
+                            }
+                            Button(
+                                onClick = onApplyCrop,
+                                enabled = state.cropPreview != null,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("تطبيق القص") }
+                        }
+                    } else {
+                        Text(
+                            when {
+                                state.selected.isEmpty() -> "اختار صورة الأول علشان تقدر تراجع حدودها."
+                                state.cropSource == null -> "جاري تجهيز معاينة أول صورة..."
+                                !openCvReady -> "ميزة القص محتاجة مكتبة معالجة الصور، وهي مش جاهزة حاليًا."
+                                state.cropApplied -> "تم تطبيق القص على أول صورة. تقدر تكمّل للتحسين."
+                                else -> "الخطوة دي اختيارية؛ لو الصورة مش مستند، تقدر تتخطاها."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        if (state.selected.isEmpty()) "اختار صورة أو أكتر علشان تبدأ."
-                        else "تم اختيار ${state.selected.size} صورة",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
 
@@ -216,8 +241,8 @@ private fun PhotoUnifierScreen(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeading("التحكم اليدوي", "اضبط السطوع والتباين حسب الصورة")
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StepHeading(3, "اضبط الإضاءة والتباين", "سيتم استخدام القيم دي أثناء معالجة الصور المختارة.")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("السطوع", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                         ValuePill(if (state.brightness > 0) "+${state.brightness}" else "${state.brightness}")
@@ -225,7 +250,8 @@ private fun PhotoUnifierScreen(
                     Slider(
                         value = state.brightness.toFloat(),
                         onValueChange = { onBrightnessChange(it.roundToInt()) },
-                        valueRange = -50f..50f
+                        valueRange = -50f..50f,
+                        enabled = !state.busy
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("التباين", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -234,13 +260,21 @@ private fun PhotoUnifierScreen(
                     Slider(
                         value = state.contrastPercent.toFloat(),
                         onValueChange = { onContrastChange(it.roundToInt()) },
-                        valueRange = 50f..200f
+                        valueRange = 50f..200f,
+                        enabled = !state.busy
                     )
+                    OutlinedButton(
+                        onClick = {
+                            onBrightnessChange(0)
+                            onContrastChange(100)
+                        },
+                        enabled = !state.busy && (state.brightness != 0 || state.contrastPercent != 100),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("إرجاع الضبط للوضع الطبيعي")
+                    }
                     Text(
-                        if (state.enhancedPreview == null)
-                            "اضبط القيم قبل بدء المعالجة؛ هتتطبق على الملفات المحفوظة."
-                        else
-                            "التغييرات بعد انتهاء المعالجة بتحدّث المعاينة؛ ابدأ المعالجة من جديد لحفظ نسخة بالقيم الجديدة.",
+                        "السطوع والتباين تعديلان عامّان؛ المعالجة الذكية كمان بتختار طريقة مناسبة لنوع الصورة.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -252,8 +286,52 @@ private fun PhotoUnifierScreen(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionHeading("حالة المعالجة", "متابعة مباشرة للصور")
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StepHeading(4, "حسّن الصور واحفظها", "المعالجة بتحفظ نسخ جديدة، والصور الأصلية بتفضل زي ما هي.")
+                    Button(
+                        onClick = onProcess,
+                        enabled = !state.busy && openCvReady && state.selected.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (state.busy) "جاري التحسين..." else "بدء التحسين والحفظ")
+                    }
+
+                    if (state.selected.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            PreviewPanel("الأصل / المصدر", state.sourcePreview, Modifier.weight(1f))
+                            PreviewPanel(
+                                "النتيجة المحسّنة",
+                                state.resultPreview ?: state.enhancedPreview,
+                                Modifier.weight(1f)
+                            )
+                        }
+                    } else {
+                        Text(
+                            "بعد اختيار الصور، هتظهر معاينة المصدر والنتيجة هنا.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (!openCvReady) {
+                        Text(
+                            "مكتبة OpenCV مش جاهزة؛ مش هتقدر تبدأ المعالجة حاليًا.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StepHeading(5, "حالة المعالجة", "تابع التقدم والنتيجة النهائية.")
                     Text(state.status, style = MaterialTheme.typography.bodyMedium)
                     if (state.busy) {
                         LinearProgressIndicator(
@@ -266,21 +344,49 @@ private fun PhotoUnifierScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (!openCvReady) {
-                        Text(
-                            "مكتبة OpenCV مش جاهزة؛ المعالجة متوقفة لحد ما تتوفر.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
                     Text(
-                        "الصور الأصلية مش بتتغير. النسخ المحسّنة بتتحفظ في Pictures/PhotoUnifier.",
+                        "مكان حفظ النسخ الجديدة: Pictures/PhotoUnifier",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun StepHeading(number: Int, title: String, subtitle: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            modifier = Modifier.size(32.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "$number",
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
