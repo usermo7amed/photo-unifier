@@ -61,6 +61,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                     if (old.selected.firstOrNull() != uris.first()) { bitmap.recycle(); old }
                     else old.copy(sourcePreview = bitmap, cropSource = bitmap)
                 }
+                refreshPreview()
             } catch (error: Exception) {
                 update { it.copy(status = "تعذر تحميل معاينة الصورة: ${error.message ?: "خطأ"}") }
             }
@@ -135,6 +136,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         val preview = currentState.cropPreview ?: return
         val applied = preview.copy(Bitmap.Config.ARGB_8888, false)
         update { it.copy(cropOpen = false, cropApplied = true, sourcePreview = applied, status = "تم تطبيق القص على الصورة الأولى؛ ابدأ التحسين.") }
+        refreshPreview()
     }
 
     fun setBrightness(value: Int) {
