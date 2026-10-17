@@ -18,6 +18,7 @@ data class PhotoUiState(
     val sourcePreview: Bitmap? = null,
     val enhancedPreview: Bitmap? = null,
     val resultPreview: Bitmap? = null,
+    val livePreview: Bitmap? = null,
     val brightness: Int = 0,
     val contrastPercent: Int = 100,
     val cropSource: Bitmap? = null,
@@ -49,7 +50,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         update { it.copy(
             selected = uris.toList(), progress = 0,
             status = if (uris.isEmpty()) "لم يتم اختيار صور" else "تم اختيار ${uris.size} صورة",
-            sourcePreview = null, enhancedPreview = null, resultPreview = null,
+            sourcePreview = null, enhancedPreview = null, resultPreview = null, livePreview = null,
             cropSource = null, cropPreview = null, cropCorners = emptyList(),
             cropUndoStack = emptyList(), cropOpen = false, cropApplied = false
         ) }
@@ -148,7 +149,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshPreview() {
         val snapshot = currentState
-        val base = snapshot.enhancedPreview ?: return
+        val base = snapshot.enhancedPreview ?: snapshot.sourcePreview ?: return
         val generation = previewGeneration.incrementAndGet()
         previewExecutor.execute {
             if (base.isRecycled) return@execute
@@ -163,7 +164,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                 if (old.enhancedPreview !== base || generation != previewGeneration.get()) {
                     preview.recycle()
                     old
-                } else old.copy(resultPreview = preview)
+                } else old.copy(livePreview = preview)
             }
         }
     }
@@ -221,6 +222,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         currentState.sourcePreview?.let { if (!it.isRecycled) it.recycle() }
         currentState.enhancedPreview?.let { if (!it.isRecycled) it.recycle() }
         currentState.resultPreview?.let { if (!it.isRecycled) it.recycle() }
+        currentState.livePreview?.let { if (!it.isRecycled) it.recycle() }
         super.onCleared()
     }
 }
