@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Photo Unifier app icon</title>
+  <desc id="desc">A clean white photo document with a landscape and scan-corner marks on a deep blue background.</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#193B70"/>
+      <stop offset="1" stop-color="#2468D8"/>
+    </linearGradient>
+    <linearGradient id="landscape" x1="180" y1="250" x2="320" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#32C7C0"/>
+      <stop offset="1" stop-color="#2474E8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+
+  <!-- Scan corners -->
+  <g fill="none" stroke="#7FE8E2" stroke-linecap="round" stroke-linejoin="round" stroke-width="12">
+    <path d="M112 165v-25q0-14 14-14h25"/>
+    <path d="M361 126h25q14 0 14 14v25"/>
+    <path d="M400 347v25q0 14-14 14h-25"/>
+    <path d="M151 386h-25q-14 0-14-14v-25"/>
+  </g>
+
+  <!-- Document -->
+  <path d="M166 91h129l62 62v211q0 18-18 18H166q-18 0-18-18V109q0-18 18-18Z" fill="#FFFFFF"/>
+  <path d="M295 91v45q0 17 17 17h45Z" fill="#DCEAFF"/>
+  <path d="M295 91v45q0 17 17 17h45" fill="none" stroke="#C8DAF5" stroke-linejoin="round" stroke-width="3"/>
+
+  <!-- Photo frame -->
+  <rect x="177" y="190" width="150" height="126" rx="13" fill="#F1F6FD" stroke="#D9E5F6" stroke-width="3"/>
+  <circle cx="284" cy="220" r="14" fill="#FFBF57"/>
+  <path d="M188 291 222 249q5-7 11 0l22 26 17-20q6-7 12 0l32 37v13H188Z" fill="url(#landscape)"/>
+  <path d="M188 291 222 249q5-7 11 0l22 26" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" opacity=".8"/>
+
+  <!-- Subtle unification / enhancement sparkle -->
+  <path d="M358 295c4 18 10 24 28 28-18 4-24 10-28 28-4-18-10-24-28-28 18-4 24-10 28-28Z" fill="#FFD36B" stroke="#FFFFFF" stroke-linejoin="round" stroke-width="4"/>
+</svg>
