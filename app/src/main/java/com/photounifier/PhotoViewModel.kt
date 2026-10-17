@@ -60,6 +60,9 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                     if (old.selected.firstOrNull() != uris.first()) { bitmap.recycle(); old }
                     else old.copy(sourcePreview = bitmap, cropSource = bitmap)
                 }
+                // Show manual adjustments against the original as soon as it loads,
+                // without forcing the user to run the full enhancement pipeline first.
+                refreshPreview()
             } catch (error: Exception) {
                 update { it.copy(status = "تعذر تحميل معاينة الصورة: ${error.message ?: "خطأ"}") }
             }
@@ -134,6 +137,7 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
         val preview = currentState.cropPreview ?: return
         val applied = preview.copy(Bitmap.Config.ARGB_8888, false)
         update { it.copy(cropOpen = false, cropApplied = true, sourcePreview = applied, status = "تم تطبيق القص على الصورة الأولى؛ ابدأ التحسين.") }
+        refreshPreview()
     }
 
     fun setBrightness(value: Int) {
@@ -148,7 +152,9 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshPreview() {
         val snapshot = currentState
-        val base = snapshot.enhancedPreview ?: return
+        // Before processing, use the loaded (or cropped) source as the preview base.
+        // After processing starts producing enhanced frames, prefer those instead.
+        val base = snapshot.enhancedPreview ?: snapshot.sourcePreview ?: return
         val generation = previewGeneration.incrementAndGet()
         previewExecutor.execute {
             if (base.isRecycled) return@execute
@@ -160,7 +166,8 @@ class PhotoViewModel(application: Application) : AndroidViewModel(application) {
                 return@execute
             }
             update { old ->
-                if (old.enhancedPreview !== base || generation != previewGeneration.get()) {
+                if ((old.enhancedPreview !== base && old.sourcePreview !== base) ||
+                    generation != previewGeneration.get()) {
                     preview.recycle()
                     old
                 } else old.copy(resultPreview = preview)
