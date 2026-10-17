@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -115,7 +120,7 @@ private fun PhotoUnifierScreen(
     onCancelCrop: () -> Unit,
     onApplyCrop: () -> Unit
 ) {
-    var showEnhancedPreview by remember { mutableStateOf(true) }
+
     Scaffold(topBar = {
         TopAppBar(
             title = {
@@ -301,40 +306,15 @@ private fun PhotoUnifierScreen(
                     }
 
                     if (state.selected.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (showEnhancedPreview) {
-                                OutlinedButton(
-                                    onClick = { showEnhancedPreview = false },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض الأصل") }
-                                Button(
-                                    onClick = { showEnhancedPreview = true },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض النتيجة") }
-                            } else {
-                                Button(
-                                    onClick = { showEnhancedPreview = false },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض الأصل") }
-                                OutlinedButton(
-                                    onClick = { showEnhancedPreview = true },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض النتيجة") }
-                            }
-                        }
-                        PreviewPanel(
-                            if (showEnhancedPreview) "النتيجة المحسّنة" else "الصورة الأصلية",
-                            if (showEnhancedPreview) state.resultPreview ?: state.enhancedPreview
-                            else state.sourcePreview,
-                            Modifier.fillMaxWidth()
+                        BeforeAfterPreview(
+                            source = state.sourcePreview,
+                            enhanced = state.resultPreview ?: state.enhancedPreview,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            if (showEnhancedPreview && state.resultPreview == null && state.enhancedPreview == null)
-                                "النتيجة هتظهر بعد تشغيل التحسين."
-                            else "بدّل بين الأصل والنتيجة لمراجعة التغيير بوضوح.",
+                            if (state.resultPreview == null && state.enhancedPreview == null)
+                                "حرّك شريط المقارنة لمراجعة الأصل. النتيجة تظهر هنا مع تغييرات السطوع والتباين، ويمكنك التكبير والسحب لفحص التفاصيل."
+                            else "اسحب شريط المقارنة يمينًا ويسارًا. استخدم إصبعيك للتكبير والتحريك أو أزرار التكبير أسفل الصورة.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -472,6 +452,114 @@ private fun PreviewPanel(
     }
 }
 
+
+
+@Composable
+private fun BeforeAfterPreview(
+    source: android.graphics.Bitmap?,
+    enhanced: android.graphics.Bitmap?,
+    modifier: Modifier = Modifier
+) {
+    var reveal by remember(source, enhanced) { mutableStateOf(0.5f) }
+    var zoom by remember(source, enhanced) { mutableStateOf(1f) }
+    var pan by remember(source, enhanced) { mutableStateOf(Offset.Zero) }
+    val safeSource = source?.takeUnless { it.isRecycled }
+    val safeEnhanced = enhanced?.takeUnless { it.isRecycled }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("قبل", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text("بعد", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        }
+        Box(
+            modifier = Modifier.fillMaxWidth().height(300.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF16191D))
+                .pointerInput(safeSource, safeEnhanced) {
+                    detectTransformGestures { _, panChange, zoomChange, _ ->
+                        zoom = (zoom * zoomChange).coerceIn(1f, 5f)
+                        pan = if (zoom <= 1f) Offset.Zero else pan + panChange
+                    }
+                }
+        ) {
+            if (safeSource != null) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val after = safeEnhanced ?: safeSource
+                    val fit = minOf(
+                        size.width / safeSource.width.toFloat(),
+                        size.height / safeSource.height.toFloat()
+                    )
+                    fun drawFitted(bitmap: android.graphics.Bitmap) {
+                        val drawWidth = (bitmap.width * fit * zoom).roundToInt().coerceAtLeast(1)
+                        val drawHeight = (bitmap.height * fit * zoom).roundToInt().coerceAtLeast(1)
+                        val left = ((size.width - drawWidth) / 2f + pan.x).roundToInt()
+                        val top = ((size.height - drawHeight) / 2f + pan.y).roundToInt()
+                        drawImage(
+                            image = bitmap.asImageBitmap(),
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(bitmap.width, bitmap.height),
+                            dstOffset = IntOffset(left, top),
+                            dstSize = IntSize(drawWidth, drawHeight),
+                            filterQuality = FilterQuality.High
+                        )
+                    }
+                    drawFitted(after)
+                    clipRect(left = 0f, top = 0f, right = size.width * reveal, bottom = size.height) {
+                        drawFitted(safeSource)
+                    }
+                    val dividerX = size.width * reveal
+                    drawLine(Color.White, Offset(dividerX, 0f), Offset(dividerX, size.height), strokeWidth = 4f)
+                    drawCircle(Color.White, radius = 16f, center = Offset(dividerX, size.height / 2f))
+                    drawCircle(Color(0xFF1565C0), radius = 11f, center = Offset(dividerX, size.height / 2f))
+                }
+                if (safeEnhanced == null) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("بانتظار النتيجة", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            } else {
+                Text("اختار صورة لعرض المقارنة", modifier = Modifier.align(Alignment.Center),
+                    color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Slider(
+            value = reveal,
+            onValueChange = { reveal = it },
+            valueRange = 0.02f..0.98f,
+            enabled = safeSource != null && safeEnhanced != null
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = { zoom = (zoom / 1.25f).coerceAtLeast(1f); if (zoom == 1f) pan = Offset.Zero },
+                enabled = zoom > 1f,
+                modifier = Modifier.weight(1f)
+            ) { Text("−") }
+            Text("${(zoom * 100).roundToInt()}%", modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.labelLarge)
+            OutlinedButton(
+                onClick = { zoom = (zoom * 1.25f).coerceAtMost(5f) },
+                enabled = safeSource != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("+") }
+            OutlinedButton(
+                onClick = { zoom = 1f; pan = Offset.Zero; reveal = 0.5f },
+                modifier = Modifier.weight(1.4f)
+            ) { Text("إعادة") }
+        }
+    }
+}
 
 @Composable
 private fun CropCornerEditor(
