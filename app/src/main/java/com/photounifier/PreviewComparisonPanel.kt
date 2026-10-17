@@ -37,6 +37,7 @@ internal fun PreviewComparisonPanel(
 ) {
     var reveal by remember { mutableFloatStateOf(0.5f) }
     var zoom by remember { mutableFloatStateOf(1f) }
+    val dividerColor = MaterialTheme.colorScheme.primary
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -72,7 +73,7 @@ internal fun PreviewComparisonPanel(
                         center = Offset(dividerX, size.height / 2f)
                     )
                     drawCircle(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = dividerColor,
                         radius = 8.dp.toPx(),
                         center = Offset(dividerX, size.height / 2f)
                     )
