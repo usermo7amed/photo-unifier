@@ -39,7 +39,25 @@ class PhotoRepository {
                     val classification = classifier?.classify(loadedSource)
                         ?: SceneClassification(ImageKind.GENERAL, 0f, emptyList())
                     observer.onClassification(index + 1, uris.size, classification.kind)
+
                     enhanced = Processor.enhance(loadedSource, classification.kind)
+
+                    // OCR is an additional pass only for classifier-confirmed documents.
+                    // A sign or text-rich photograph classified as a photo never enters
+                    // this path, and OCR enhancement preserves document colour channels.
+                    if (OcrRoutingPolicy.shouldRunDocumentOcr(classification.kind)) {
+                        try {
+                            val ocrResult = TextOcrEnhancer().use { it.analyzeAndEnhanceBlocking(enhanced!!) }
+                            if (ocrResult.looksLikeDocument && ocrResult.enhancedBitmap !== enhanced) {
+                                enhanced?.let { if (!it.isRecycled) it.recycle() }
+                                enhanced = ocrResult.enhancedBitmap
+                            }
+                        } catch (_: Exception) {
+                            // OCR is optional: keep the regular document enhancement on any OCR failure.
+                        }
+                    }
+
+                    // Both the visible preview and saved file derive from this same final bitmap.
                     observer.onEnhanced(enhanced.copy(Bitmap.Config.ARGB_8888, false))
                     output = BitmapAdjustments.apply(enhanced, brightness, contrastPercent / 100f)
                     Processor.save(context, output, "PU_%s_%03d.jpg".format(Locale.US, stamp, index + 1))
