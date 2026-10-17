@@ -12,7 +12,7 @@
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M8,15 C8,13.9 8.9,13 10,13 L17,13 L19.5,10 L27,10 L29.5,13 L38,13 C39.1,13 40,13.9 40,15 L40,34 C40,35.1 39.1,36 38,36 L10,36 C8.9,36 8,35.1 8,34 Z" />
-    <circle android:cx="31" android:cy="19" android:radius="2.5" android:fillColor="#38D9C5" />
+    <path android:fillColor="#38D9C5" android:pathData="M31,16.5 A2.5,2.5 0 1,0 31,21.5 A2.5,2.5 0 1,0 31,16.5 Z" />
     <path android:fillColor="#38D9C5" android:pathData="M10,31 L18,22 L23,27 L28,22 L38,32 L38,34 L10,34 Z" />
     <path android:fillColor="#FFFFFF" android:pathData="M38,5 L40,10 L45,12 L40,14 L38,19 L36,14 L31,12 L36,10 Z" />
 </vector>
