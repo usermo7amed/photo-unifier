@@ -89,11 +89,17 @@ object DocumentCrop {
         if (abs(twiceArea) < width.toDouble() * height * 0.015) return false
         if (segmentsIntersect(polygon[0], polygon[1], polygon[2], polygon[3]) ||
             segmentsIntersect(polygon[1], polygon[2], polygon[3], polygon[0])) return false
-        return points.indices.all { i ->
-            val a = points[(i + 3) % 4]; val b = points[i]; val c = points[(i + 1) % 4]
-            val cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
-            abs(cross) > 1f
+        // A valid perspective quadrilateral must be strictly convex. Merely
+        // rejecting intersecting opposite edges still allows concave point sets,
+        // which can produce folded or unstable perspective transforms.
+        val crosses = points.indices.map { i ->
+            val a = points[(i + 3) % 4]
+            val b = points[i]
+            val c = points[(i + 1) % 4]
+            (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
         }
+        if (crosses.any { abs(it) <= 1f }) return false
+        return crosses.all { it > 0f } || crosses.all { it < 0f }
     }
 
     fun warp(bitmap: Bitmap, points: List<CropPoint>): Bitmap {
