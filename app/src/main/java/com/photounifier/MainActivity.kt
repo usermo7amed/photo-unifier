@@ -383,6 +383,27 @@ private fun PhotoUnifierScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     StepHeading(5, "حالة المعالجة", "تابع التقدم والنتيجة النهائية.")
                     Text(state.status, style = MaterialTheme.typography.bodyMedium)
+                    if (state.progress > 0 || state.errors.isNotEmpty()) {
+                        Text("تم حفظ ${state.progress.coerceAtMost(state.progressMax)} من ${state.progressMax} صورة",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (state.errors.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("صور لم تكتمل معالجتها", fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer)
+                                state.errors.forEach { item ->
+                                    Text("• $item", style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer)
+                                }
+                            }
+                        }
+                    }
                     if (state.busy) {
                         LinearProgressIndicator(
                             progress = state.progress.toFloat() / state.progressMax.coerceAtLeast(1),
@@ -395,7 +416,7 @@ private fun PhotoUnifierScreen(
                         )
                     }
                     Text(
-                        "مكان حفظ النسخ الجديدة: Pictures/PhotoUnifier",
+                        "مكان حفظ النسخ الجديدة: Pictures/PhotoUnifier. الأصل لا يتم تعديله أو حذفه.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
