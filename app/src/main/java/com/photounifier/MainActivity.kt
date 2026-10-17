@@ -301,46 +301,22 @@ private fun PhotoUnifierScreen(
                     }
 
                     if (state.selected.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (showEnhancedPreview) {
-                                OutlinedButton(
-                                    onClick = { showEnhancedPreview = false },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض الأصل") }
-                                Button(
-                                    onClick = { showEnhancedPreview = true },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض النتيجة") }
-                            } else {
-                                Button(
-                                    onClick = { showEnhancedPreview = false },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض الأصل") }
-                                OutlinedButton(
-                                    onClick = { showEnhancedPreview = true },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("عرض النتيجة") }
-                            }
-                        }
-                        PreviewPanel(
-                            if (showEnhancedPreview) "النتيجة المحسّنة" else "الصورة الأصلية",
-                            if (showEnhancedPreview) state.resultPreview ?: state.enhancedPreview
-                            else state.sourcePreview,
-                            Modifier.fillMaxWidth()
+                        PreviewComparisonPanel(
+                            source = state.sourcePreview,
+                            result = state.livePreview ?: state.resultPreview ?: state.enhancedPreview,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            if (showEnhancedPreview && state.resultPreview == null && state.enhancedPreview == null)
-                                "النتيجة هتظهر بعد تشغيل التحسين."
-                            else "بدّل بين الأصل والنتيجة لمراجعة التغيير بوضوح.",
+                            if (state.livePreview == null && state.resultPreview == null && state.enhancedPreview == null)
+                                "حرّك السطوع أو التباين لمعاينة التغيير فورًا، أو ابدأ التحسين لعرض النتيجة المعالجة."
+                            else
+                                "المعاينة بتتحدث مع تغييرات السطوع والتباين. استخدم شريط قبل/بعد والتكبير لفحص التفاصيل.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         Text(
-                            "بعد اختيار الصور، هتظهر معاينة المصدر والنتيجة هنا.",
+                            "بعد اختيار صورة، هتقدر تقارن الأصل بالنتيجة وتكبّر التفاصيل قبل الحفظ.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
