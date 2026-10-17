@@ -32,4 +32,11 @@ class DocumentCropTest {
             100, 100
         ))
     }
+
+    @Test fun rejectsConcaveQuadrilateral() {
+        assertFalse(DocumentCrop.isValid(
+            listOf(CropPoint(10f, 10f), CropPoint(90f, 10f), CropPoint(40f, 40f), CropPoint(10f, 90f)),
+            100, 100
+        ))
+    }
 }
