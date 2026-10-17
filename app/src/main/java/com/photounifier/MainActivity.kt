@@ -120,6 +120,8 @@ private fun PhotoUnifierScreen(
     onCancelCrop: () -> Unit,
     onApplyCrop: () -> Unit
 ) {
+    var currentStep by remember { mutableStateOf(0) }
+    val stepTitles = listOf("اختيار الصور", "قص الصورة", "الإضاءة", "المعاينة والحفظ", "النتيجة")
 
     Scaffold(topBar = {
         TopAppBar(
@@ -147,6 +149,25 @@ private fun PhotoUnifierScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("الخطوة " + (currentStep + 1) + " من " + stepTitles.size + ": " + stepTitles[currentStep],
+                        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        stepTitles.indices.forEach { index ->
+                            Surface(
+                                modifier = Modifier.weight(1f).height(5.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (index <= currentStep) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            ) {}
+                        }
+                    }
+                }
+            }
+            if (currentStep == 0) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(
@@ -179,7 +200,7 @@ private fun PhotoUnifierScreen(
                 }
             }
 
-            Card(
+            if (currentStep == 1) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -245,7 +266,7 @@ private fun PhotoUnifierScreen(
                 }
             }
 
-            Card(
+            if (currentStep == 2) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -290,7 +311,7 @@ private fun PhotoUnifierScreen(
                 }
             }
 
-            Card(
+            if (currentStep == 3) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -298,7 +319,7 @@ private fun PhotoUnifierScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     StepHeading(4, "حسّن الصور واحفظها", "المعالجة بتحفظ نسخ جديدة، والصور الأصلية بتفضل زي ما هي.")
                     Button(
-                        onClick = onProcess,
+                        onClick = { onProcess(); currentStep = 4 },
                         enabled = !state.busy && openCvReady && state.selected.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -337,7 +358,7 @@ private fun PhotoUnifierScreen(
                 }
             }
 
-            Card(
+            if (currentStep == 4) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -362,6 +383,21 @@ private fun PhotoUnifierScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { currentStep = (currentStep - 1).coerceAtLeast(0) },
+                    enabled = currentStep > 0,
+                    modifier = Modifier.weight(1f)
+                ) { Text("السابق") }
+                Button(
+                    onClick = { currentStep = (currentStep + 1).coerceAtMost(stepTitles.lastIndex) },
+                    enabled = currentStep < stepTitles.lastIndex && (currentStep != 0 || state.selected.isNotEmpty()),
+                    modifier = Modifier.weight(1f)
+                ) { Text(if (currentStep == 3) "عرض حالة المعالجة" else "التالي") }
             }
             Spacer(Modifier.height(8.dp))
         }
