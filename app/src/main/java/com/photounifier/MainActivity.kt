@@ -40,6 +40,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,6 +115,7 @@ private fun PhotoUnifierScreen(
     onCancelCrop: () -> Unit,
     onApplyCrop: () -> Unit
 ) {
+    var showEnhancedPreview by remember { mutableStateOf(true) }
     Scaffold(topBar = {
         TopAppBar(
             title = {
@@ -299,15 +303,41 @@ private fun PhotoUnifierScreen(
                     if (state.selected.isNotEmpty()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            PreviewPanel("الأصل / المصدر", state.sourcePreview, Modifier.weight(1f))
-                            PreviewPanel(
-                                "النتيجة المحسّنة",
-                                state.resultPreview ?: state.enhancedPreview,
-                                Modifier.weight(1f)
-                            )
+                            if (showEnhancedPreview) {
+                                OutlinedButton(
+                                    onClick = { showEnhancedPreview = false },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("عرض الأصل") }
+                                Button(
+                                    onClick = { showEnhancedPreview = true },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("عرض النتيجة") }
+                            } else {
+                                Button(
+                                    onClick = { showEnhancedPreview = false },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("عرض الأصل") }
+                                OutlinedButton(
+                                    onClick = { showEnhancedPreview = true },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("عرض النتيجة") }
+                            }
                         }
+                        PreviewPanel(
+                            if (showEnhancedPreview) "النتيجة المحسّنة" else "الصورة الأصلية",
+                            if (showEnhancedPreview) state.resultPreview ?: state.enhancedPreview
+                            else state.sourcePreview,
+                            Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            if (showEnhancedPreview && state.resultPreview == null && state.enhancedPreview == null)
+                                "النتيجة هتظهر بعد تشغيل التحسين."
+                            else "بدّل بين الأصل والنتيجة لمراجعة التغيير بوضوح.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     } else {
                         Text(
                             "بعد اختيار الصور، هتظهر معاينة المصدر والنتيجة هنا.",
@@ -412,7 +442,7 @@ private fun PreviewPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Box(
-            modifier = Modifier.fillMaxWidth().height(190.dp)
+            modifier = Modifier.fillMaxWidth().height(280.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
