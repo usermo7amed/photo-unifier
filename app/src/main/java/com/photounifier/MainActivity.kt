@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,6 +123,22 @@ private fun PhotoUnifierScreen(
 ) {
     var currentStep by remember { mutableStateOf(0) }
     val stepTitles = listOf("اختيار الصور", "قص الصورة", "الإضاءة", "المعاينة والحفظ", "النتيجة")
+
+    // Move forward only when the previous action has produced its state change.
+    LaunchedEffect(state.selected.size) {
+        if (state.selected.isNotEmpty() && currentStep == 0) currentStep = 1
+        if (state.selected.isEmpty() && currentStep > 0 && !state.busy) currentStep = 0
+    }
+    LaunchedEffect(state.cropApplied) {
+        if (state.cropApplied && currentStep == 1) currentStep = 2
+    }
+    LaunchedEffect(state.busy, state.status, state.resultPreview, state.enhancedPreview) {
+        if (state.busy) {
+            currentStep = 4
+        } else if (currentStep == 4 && (state.resultPreview != null || state.enhancedPreview != null)) {
+            currentStep = 4
+        }
+    }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -319,7 +336,7 @@ private fun PhotoUnifierScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     StepHeading(4, "حسّن الصور واحفظها", "المعالجة بتحفظ نسخ جديدة، والصور الأصلية بتفضل زي ما هي.")
                     Button(
-                        onClick = { onProcess(); currentStep = 4 },
+                        onClick = { onProcess() },
                         enabled = !state.busy && openCvReady && state.selected.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
