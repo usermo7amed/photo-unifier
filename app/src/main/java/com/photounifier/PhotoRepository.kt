@@ -40,28 +40,13 @@ class PhotoRepository {
                         ?: SceneClassification(ImageKind.GENERAL, 0f, emptyList())
                     observer.onClassification(index + 1, uris.size, classification.kind)
 
-                    var finalEnhanced = Processor.enhance(loadedSource, classification.kind)
+                    // Enhancement is strictly pixel-based: no OCR, text reconstruction,
+                    // character replacement, or generated lettering. Document-specific
+                    // contrast and illumination correction live in Processor.
+                    val finalEnhanced = Processor.enhance(loadedSource, classification.kind)
                     enhanced = finalEnhanced
 
-                    // OCR is an additional pass only for classifier-confirmed documents.
-                    // A sign or text-rich photograph classified as a photo never enters
-                    // this path, and OCR enhancement preserves document colour channels.
-                    if (OcrRoutingPolicy.shouldRunDocumentOcr(classification.kind)) {
-                        try {
-                            val ocrResult = TextOcrEnhancer().use {
-                                it.analyzeAndEnhanceBlocking(finalEnhanced)
-                            }
-                            if (ocrResult.looksLikeDocument && ocrResult.enhancedBitmap !== finalEnhanced) {
-                                finalEnhanced.recycle()
-                                finalEnhanced = ocrResult.enhancedBitmap
-                                enhanced = finalEnhanced
-                            }
-                        } catch (_: Exception) {
-                            // OCR is optional: keep the regular document enhancement on any OCR failure.
-                        }
-                    }
-
-                    // Both the visible preview and saved file derive from this same final bitmap.
+                    // Preview and saved file derive from the same enhanced bitmap.
                     observer.onEnhanced(finalEnhanced.copy(Bitmap.Config.ARGB_8888, false))
                     output = BitmapAdjustments.apply(finalEnhanced, brightness, contrastPercent / 100f)
                     Processor.save(context, output, "PU_%s_%03d.jpg".format(Locale.US, stamp, index + 1))
