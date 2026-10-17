@@ -19,55 +19,100 @@ import kotlin.math.sqrt
 data class CropPoint(val x: Float, val y: Float)
 
 object DocumentCrop {
+    /**
+     * Detects a document using several complementary edge/threshold passes.
+     * A single Canny pass often misses pale paper, shadows, or broken edges.
+     * Perspective correction still uses four outer corners; internal contour
+     * points are evidence for finding those corners, not additional warp anchors.
+     */
     fun detect(bitmap: Bitmap): List<CropPoint>? {
+        if (bitmap.width < 32 || bitmap.height < 32) return null
         val rgba = Mat()
-        val rgb = Mat()
         val gray = Mat()
         val blurred = Mat()
-        val edges = Mat()
         val hierarchy = Mat()
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-        val closed = Mat()
         val contours = ArrayList<MatOfPoint>()
+        val work = Mat()
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
         try {
             Utils.bitmapToMat(bitmap, rgba)
-            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
-            Imgproc.cvtColor(rgb, gray, Imgproc.COLOR_RGB2GRAY)
+            if (rgba.channels() == 4) Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
+            else Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_BGR2GRAY)
             Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-            Imgproc.Canny(blurred, edges, 35.0, 110.0)
-            Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
-            Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
             val imageArea = bitmap.width.toDouble() * bitmap.height
             var best: Array<Point>? = null
             var bestScore = 0.0
-            for (contour in contours.sortedByDescending { Imgproc.contourArea(it) }.take(60)) {
-                val area = abs(Imgproc.contourArea(contour))
-                if (area / imageArea !in 0.08..0.995) continue
-                val curve = MatOfPoint2f(*contour.toArray())
-                try {
-                    val perimeter = Imgproc.arcLength(curve, true)
-                    for (factor in doubleArrayOf(0.012, 0.018, 0.025, 0.035)) {
-                        val approx = MatOfPoint2f()
-                        try {
-                            Imgproc.approxPolyDP(curve, approx, perimeter * factor, true)
-                            val points = approx.toArray()
-                            if (points.size != 4 || !isConvex(points) || cornerCosine(points) > 0.75) continue
-                            val ordered = order(points)
-                            val fraction = abs(Imgproc.contourArea(approx)) / imageArea
-                            val score = fraction * (1.0 - cornerCosine(ordered))
-                            if (fraction in 0.08..0.995 && score > bestScore) {
-                                best = ordered
-                                bestScore = score
-                            }
-                        } finally { approx.release() }
+
+            // Try both continuous edges and adaptive thresholding. This helps
+            // when a page edge is weak or partially hidden by a cast shadow.
+            val passes = 3
+            for (pass in 0 until passes) {
+                work.release()
+                when (pass) {
+                    0 -> {
+                        Imgproc.Canny(blurred, work, 25.0, 85.0)
+                        Imgproc.morphologyEx(work, work, Imgproc.MORPH_CLOSE, kernel)
                     }
-                } finally { curve.release() }
+                    1 -> {
+                        Imgproc.Canny(blurred, work, 45.0, 135.0)
+                        Imgproc.dilate(work, work, kernel)
+                        Imgproc.morphologyEx(work, work, Imgproc.MORPH_CLOSE, kernel)
+                    }
+                    else -> {
+                        Imgproc.adaptiveThreshold(
+                            blurred, work, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                            Imgproc.THRESH_BINARY, 31, 9.0
+                        )
+                        Imgproc.morphologyEx(work, work, Imgproc.MORPH_CLOSE, kernel)
+                    }
+                }
+                contours.clear()
+                Imgproc.findContours(work, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+                for (contour in contours.sortedByDescending { abs(Imgproc.contourArea(it)) }.take(100)) {
+                    val area = abs(Imgproc.contourArea(contour))
+                    val fraction = area / imageArea
+                    if (fraction !in 0.045..0.985) continue
+                    val curve = MatOfPoint2f(*contour.toArray())
+                    try {
+                        val perimeter = Imgproc.arcLength(curve, true)
+                        for (factor in doubleArrayOf(0.008, 0.012, 0.018, 0.025, 0.035, 0.045)) {
+                            val approx = MatOfPoint2f()
+                            try {
+                                Imgproc.approxPolyDP(curve, approx, perimeter * factor, true)
+                                val points = approx.toArray()
+                                if (points.size != 4 || !isConvex(points)) continue
+                                val ordered = order(points)
+                                val candidateFraction = abs(Imgproc.contourArea(approx)) / imageArea
+                                if (candidateFraction !in 0.045..0.985) continue
+                                val cosine = cornerCosine(ordered)
+                                // Prefer large, nearly rectangular convex candidates,
+                                // but don't reject strong perspective solely for non-right angles.
+                                val centerX = ordered.map { it.x }.average()
+                                val centerY = ordered.map { it.y }.average()
+                                val centerPenalty = sqrt(
+                                    ((centerX - bitmap.width / 2.0) / bitmap.width).let { it * it } +
+                                    ((centerY - bitmap.height / 2.0) / bitmap.height).let { it * it }
+                                ).coerceAtMost(0.7)
+                                val score = candidateFraction * (1.0 - cosine * 0.55) * (1.0 - centerPenalty * 0.12)
+                                if (score > bestScore) {
+                                    best = ordered
+                                    bestScore = score
+                                }
+                            } finally { approx.release() }
+                        }
+                    } finally { curve.release() }
+                }
+                contours.forEach { it.release() }
+                contours.clear()
             }
-            return best?.takeIf { bestScore > 0.055 }?.map { CropPoint(it.x.toFloat(), it.y.toFloat()) }
+            return best?.takeIf { bestScore > 0.035 }?.map {
+                CropPoint(it.x.toFloat().coerceIn(0f, (bitmap.width - 1).toFloat()),
+                    it.y.toFloat().coerceIn(0f, (bitmap.height - 1).toFloat()))
+            }
         } finally {
             contours.forEach { it.release() }
-            rgba.release(); rgb.release(); gray.release(); blurred.release()
-            edges.release(); hierarchy.release(); kernel.release(); closed.release()
+            rgba.release(); gray.release(); blurred.release(); hierarchy.release()
+            kernel.release(); work.release()
         }
     }
 
