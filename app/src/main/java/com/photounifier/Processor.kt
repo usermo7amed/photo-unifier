@@ -386,6 +386,15 @@ object Processor {
     // ----------------------------------------------------- interior / exterior
 
     private fun enhancePhoto(pool: Pool, rgb: Mat, config: ToneConfig): Mat {
+        // Keep a pristine reference: white balance and tone mapping must not compound
+        // across repeated previews or force a strong look onto an already-good photo.
+        val original = pool.mat()
+        rgb.copyTo(original)
+
+        val gray = pool.mat()
+        Imgproc.cvtColor(original, gray, Imgproc.COLOR_RGB2GRAY)
+        val meanLuminance = Core.mean(gray).`val`[0] / 255.0
+
         if (config.whiteBalance) grayWorld(pool, rgb)
         val lab = pool.mat()
         Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
@@ -395,7 +404,21 @@ object Processor {
         Core.merge(channels, lab)
         Imgproc.cvtColor(lab, rgb, Imgproc.COLOR_Lab2RGB)
         boostSaturation(pool, rgb, config.saturation)
-        return sharpen(pool, rgb, config.sharpening)
+        val enhanced = sharpen(pool, rgb, config.sharpening)
+
+        // Adapt the strength to the input exposure. Underexposed photos benefit from
+        // stronger correction; already bright or midtone-balanced photos retain more
+        // of their original pixels to avoid clipped highlights and an over-processed look.
+        val strength = when {
+            meanLuminance < 0.28 -> 0.86
+            meanLuminance < 0.42 -> 0.78
+            meanLuminance < 0.66 -> 0.66
+            meanLuminance < 0.78 -> 0.56
+            else -> 0.44
+        }
+        val blended = pool.mat()
+        Core.addWeighted(enhanced, strength, original, 1.0 - strength, 0.0, blended)
+        return blended
     }
 
     /** Gray World estimates white balance only from near-neutral midtone pixels. */
