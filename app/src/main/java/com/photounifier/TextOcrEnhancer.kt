@@ -1,22 +1,22 @@
 package com.photounifier
 
 import android.graphics.Bitmap
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
+import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import org.opencv.imgproc.CLAHE
 
 /**
- * Detects printed Latin-script text on-device and improves document readability.
- *
- * This is deliberately conservative: photos without substantial text are returned
- * unchanged. Call from a UI/ViewModel layer and update the UI from [callback].
+ * OCR-assisted readability enhancement for images already classified as documents.
+ * It intentionally does not threshold pixels to black/white: the Lab chroma channels
+ * are preserved so colored stamps, highlighting and ink remain colored.
  */
 class TextOcrEnhancer : AutoCloseable {
     private val recognizer: TextRecognizer =
@@ -28,98 +28,76 @@ class TextOcrEnhancer : AutoCloseable {
         val enhancedBitmap: Bitmap
     )
 
-    fun analyzeAndEnhance(
-        bitmap: Bitmap,
-        callback: (kotlin.Result<Result>) -> Unit
-    ) {
-        val input = InputImage.fromBitmap(bitmap, 0)
-        recognizer.process(input)
-            .addOnSuccessListener { visionText ->
-                val text = visionText.text.trim()
-                val textBlocks = visionText.textBlocks.size
-                val looksLikeDocument = text.length >= 24 || textBlocks >= 3
-
-                val output = try {
-                    if (looksLikeDocument && OpenCVLoader.initLocal()) {
-                        enhanceDocument(bitmap)
-                    } else {
-                        bitmap
-                    }
-                } catch (_: Exception) {
-                    // OCR should still be useful even if optional image enhancement fails.
-                    bitmap
-                }
-
-                callback(
-                    kotlin.Result.success(
-                        Result(
-                            recognizedText = text,
-                            looksLikeDocument = looksLikeDocument,
-                            enhancedBitmap = output
-                        )
-                    )
-                )
+    /** Call on a worker thread; OCR runs on-device and this method waits for its result. */
+    fun analyzeAndEnhanceBlocking(bitmap: Bitmap): Result {
+        val visionText = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0)))
+        val text = visionText.text.trim()
+        val looksLikeDocument = text.length >= MIN_TEXT_LENGTH || visionText.textBlocks.size >= MIN_TEXT_BLOCKS
+        val output = if (looksLikeDocument && OpenCVLoader.initLocal()) {
+            try {
+                enhanceDocumentColorPreserving(bitmap)
+            } catch (_: Exception) {
+                bitmap
             }
-            .addOnFailureListener { error ->
-                callback(kotlin.Result.failure(error))
-            }
+        } else {
+            bitmap
+        }
+        return Result(text, looksLikeDocument, output)
     }
 
-    private fun enhanceDocument(bitmap: Bitmap): Bitmap {
-        val safeBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+    private fun enhanceDocumentColorPreserving(bitmap: Bitmap): Bitmap {
+        val sourceBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
             ?: throw IllegalArgumentException("Could not copy bitmap for OCR enhancement")
-
-        val source = Mat()
-        val gray = Mat()
-        val equalized = Mat()
-        val binary = Mat()
-        val output = Bitmap.createBitmap(
-            safeBitmap.width,
-            safeBitmap.height,
-            Bitmap.Config.ARGB_8888
-        )
-
+        val rgba = Mat()
+        val rgb = Mat()
+        val lab = Mat()
+        val enhancedLuminance = Mat()
+        val outputRgb = Mat()
+        val outputRgba = Mat()
+        val channels = ArrayList<Mat>()
+        val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         try {
-            Utils.bitmapToMat(safeBitmap, source)
-            Imgproc.cvtColor(source, gray, Imgproc.COLOR_RGBA2GRAY)
+            Utils.bitmapToMat(sourceBitmap, rgba)
+            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
+            Core.split(lab, channels)
 
-            val clahe: CLAHE = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+            val luminance = channels[0]
+            val clahe = Imgproc.createCLAHE(1.35, Size(8.0, 8.0))
             try {
-                clahe.apply(gray, equalized)
+                clahe.apply(luminance, enhancedLuminance)
             } finally {
                 clahe.collectGarbage()
             }
 
-            // Adaptive threshold helps with uneven paper lighting and mild shadows.
-            // It is only used after OCR finds enough text to suggest a document.
-            val blockSize = minOf(31, minOf(equalized.rows(), equalized.cols()) / 2 * 2 - 1)
-            if (blockSize >= 3) {
-                Imgproc.adaptiveThreshold(
-                    equalized,
-                    binary,
-                    255.0,
-                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    Imgproc.THRESH_BINARY,
-                    blockSize,
-                    11.0
-                )
-                Imgproc.cvtColor(binary, source, Imgproc.COLOR_GRAY2RGBA)
-            } else {
-                Imgproc.cvtColor(equalized, source, Imgproc.COLOR_GRAY2RGBA)
-            }
-
-            Utils.matToBitmap(source, output)
+            // Replace only L in Lab; retain a/b to preserve the original image colours.
+            channels[0] = enhancedLuminance
+            Core.merge(channels, lab)
+            Imgproc.cvtColor(lab, outputRgb, Imgproc.COLOR_Lab2RGB)
+            Imgproc.cvtColor(outputRgb, outputRgba, Imgproc.COLOR_RGB2RGBA)
+            Utils.matToBitmap(outputRgba, output)
             return output
         } finally {
-            source.release()
-            gray.release()
-            equalized.release()
-            binary.release()
-            safeBitmap.recycle()
+            rgba.release()
+            rgb.release()
+            lab.release()
+            enhancedLuminance.release()
+            outputRgb.release()
+            outputRgba.release()
+            channels.forEach { it.release() }
+            sourceBitmap.recycle()
         }
     }
 
-    override fun close() {
-        recognizer.close()
+    override fun close() = recognizer.close()
+
+    companion object {
+        private const val MIN_TEXT_LENGTH = 24
+        private const val MIN_TEXT_BLOCKS = 3
     }
+}
+
+/** OCR is only allowed to alter images the scene classifier identified as documents. */
+internal object OcrRoutingPolicy {
+    fun shouldRunDocumentOcr(kind: ImageKind): Boolean = kind == ImageKind.DOCUMENT
 }
