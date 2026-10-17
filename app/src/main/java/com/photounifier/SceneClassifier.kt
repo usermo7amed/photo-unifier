@@ -27,10 +27,14 @@ data class SceneClassification(
 )
 
 /**
- * Uses ML Kit's bundled, on-device general image-labeling model. ML Kit's base model
- * does not expose a custom four-class classifier, so its semantic labels are mapped
- * into the app's processing routes. A dataset-trained custom model can replace this
- * mapping when labeled examples are available.
+ * Uses ML Kit's bundled, on-device general image-labeling model. The general model's
+ * labels are only evidence, not a reliable document detector. Classification therefore
+ * requires class-specific evidence and a margin over the runner-up. Ambiguous images
+ * take the non-destructive GENERAL route.
+ *
+ * A task-trained TFLite model can be added later without changing the repository's
+ * processing contract; the custom model must be trained and evaluated for our five
+ * output classes before it is shipped.
  */
 class SceneClassifier : AutoCloseable {
     private val labeler: ImageLabeler =
@@ -53,6 +57,10 @@ class SceneClassifier : AutoCloseable {
     override fun close() = labeler.close()
 
     companion object {
+        private const val MIN_CLASS_SCORE = 0.42
+        private const val MIN_WINNER_MARGIN = 0.16
+        private const val MIN_SPECIFIC_LABEL_CONFIDENCE = 0.42f
+
         private val keywords: Map<ImageKind, List<Pair<String, Float>>> = mapOf(
             ImageKind.DOCUMENT to listOf(
                 "document" to 1.5f,
@@ -112,33 +120,69 @@ class SceneClassifier : AutoCloseable {
             )
         )
 
+        // Broad labels such as "text", "room", "sky", or "building" may support a
+        // decision but cannot start it on their own.
+        private val specificKeywords: Map<ImageKind, Set<String>> = mapOf(
+            ImageKind.DOCUMENT to setOf(
+                "document", "receipt", "invoice", "form", "worksheet", "printed page"
+            ),
+            ImageKind.POSTER to setOf(
+                "poster", "billboard", "banner", "advertisement", "flyer"
+            ),
+            ImageKind.INTERIOR to setOf(
+                "interior design", "interior", "indoor", "living room", "bedroom",
+                "kitchen", "bathroom", "hallway", "apartment"
+            ),
+            ImageKind.EXTERIOR to setOf(
+                "outdoor", "landscape", "street", "road", "beach", "mountain",
+                "forest", "garden", "nature"
+            )
+        )
+
         internal fun classifyLabels(labels: List<LabelSignal>): SceneClassification {
             if (labels.isEmpty()) return SceneClassification(ImageKind.GENERAL, 0f, emptyList())
 
-            val normalized = labels.map { signal ->
-                signal to signal.text.lowercase(Locale.ROOT).trim()
+            val normalized = labels.mapNotNull { signal ->
+                val text = signal.text.lowercase(Locale.ROOT).trim()
+                if (text.isEmpty() || !signal.confidence.isFinite()) null
+                else signal.copy(confidence = signal.confidence.coerceIn(0f, 1f)) to text
             }
+            if (normalized.isEmpty()) {
+                return SceneClassification(ImageKind.GENERAL, 0f, emptyList())
+            }
+
             val scores = keywords.mapValues { (_, entries) ->
                 normalized.sumOf { (signal, text) ->
                     val weight = entries.asSequence()
                         .filter { (word, _) -> matches(text, word) }
                         .maxOfOrNull { it.second } ?: 0f
-                    (weight * signal.confidence.coerceIn(0f, 1f)).toDouble()
+                    (weight * signal.confidence).toDouble()
                 }
             }
             val ranked = scores.entries.sortedByDescending { it.value }
             val winner = ranked.first()
             val runnerUp = ranked.getOrNull(1)?.value ?: 0.0
+            val hasSpecificEvidence = normalized.any { (signal, text) ->
+                signal.confidence >= MIN_SPECIFIC_LABEL_CONFIDENCE &&
+                    specificKeywords[winner.key].orEmpty().any { matches(text, it) }
+            }
             val winnerLabels = normalized.filter { (signal, text) ->
                 keywords[winner.key].orEmpty().any { (word, weight) ->
                     weight >= 0.7f && matches(text, word) && signal.confidence > 0f
                 }
             }.map { it.first.text }.distinct()
 
-            // Weak or nearly tied evidence is deliberately routed to the conservative
-            // general-photo path instead of applying destructive document processing.
-            if (winner.value < 0.24 || (winner.value - runnerUp < 0.035)) {
-                return SceneClassification(ImageKind.GENERAL, 0f, labels.map { it.text })
+            // Never choose a specialized image pipeline from generic or conflicting labels.
+            if (
+                winner.value < MIN_CLASS_SCORE ||
+                winner.value - runnerUp < MIN_WINNER_MARGIN ||
+                !hasSpecificEvidence
+            ) {
+                return SceneClassification(
+                    ImageKind.GENERAL,
+                    0f,
+                    normalized.map { it.first.text }.distinct()
+                )
             }
 
             return SceneClassification(

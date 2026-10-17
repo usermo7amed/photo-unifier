@@ -1,6 +1,7 @@
 package com.photounifier
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SceneClassifierTest {
@@ -53,5 +54,50 @@ class SceneClassifierTest {
             listOf(LabelSignal("Object", 0.91f), LabelSignal("Pattern", 0.72f))
         )
         assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
+    fun genericTextAloneDoesNotTriggerDocumentProcessing() {
+        val result = SceneClassifier.classifyLabels(
+            listOf(LabelSignal("Text", 0.99f))
+        )
+        assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
+    fun genericSkyOrBuildingDoesNotTriggerExteriorProcessing() {
+        val result = SceneClassifier.classifyLabels(
+            listOf(LabelSignal("Sky", 0.99f), LabelSignal("Building", 0.88f))
+        )
+        assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
+    fun lowConfidenceSpecificLabelFallsBackToGeneral() {
+        val result = SceneClassifier.classifyLabels(
+            listOf(LabelSignal("Document", 0.25f), LabelSignal("Text", 0.98f))
+        )
+        assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
+    fun labelsContainingKeywordsAsSubstringsDoNotMatch() {
+        val result = SceneClassifier.classifyLabels(
+            listOf(LabelSignal("Outdoorish", 0.99f), LabelSignal("Bookcase", 0.96f))
+        )
+        assertEquals(ImageKind.GENERAL, result.kind)
+    }
+
+    @Test
+    fun emptyAndInvalidSignalsFallbackSafely() {
+        assertEquals(
+            ImageKind.GENERAL,
+            SceneClassifier.classifyLabels(emptyList()).kind
+        )
+        val invalid = SceneClassifier.classifyLabels(
+            listOf(LabelSignal("Document", Float.NaN), LabelSignal(" ", 0.8f))
+        )
+        assertEquals(ImageKind.GENERAL, invalid.kind)
+        assertTrue(invalid.matchedLabels.isEmpty())
     }
 }
